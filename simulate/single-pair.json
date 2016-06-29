@@ -1,0 +1,25 @@
+{
+  "Choices": {
+    "Vos": ["atlas"],
+    "Storages": ["gsiftp://dpm.cern.ch", "srm://castor.cern.ch"],
+    "Activities": ["default", "express", "production", "staging", "t0", "user"]
+  },
+  "Config": {
+    "Activities": {
+      "default": 0.02,
+      "express": 0.4,
+      "production": 0.5,
+      "staging": 0.5,
+      "t0": 0.7,
+      "user": 0.1
+    },
+    "SlotsAsSource": {
+      "srm://castor.cern.ch": 200
+    },
+    "SlotsAsDestination": {
+      "srm://castor.cern.ch": 200
+    },
+    "SlotsPerLink": {
+    }
+  }
+}
