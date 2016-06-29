@@ -64,9 +64,9 @@ func New(provider InfoProvider) *Echelon {
 		provider: provider,
 		keys:     provider.Keys(),
 		root: &node{
-			label:          "/",
-			weight:         1.0,
-			childrenRanges: make(map[string]float32),
+			label:    "/",
+			weight:   1.0,
+			children: make([]*node, 0, 16),
 		},
 	}
 }

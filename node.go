@@ -17,7 +17,6 @@
 package echelon
 
 import (
-	"container/list"
 	"fmt"
 	"math/rand"
 	"strings"
@@ -33,9 +32,7 @@ type (
 		// weight of the node.
 		weight float32
 		// children nodes, as they were inserted
-		children list.List
-		// childrenRanges are used to randomly pick a child depending on their weights.
-		childrenRanges map[string]float32
+		children []*node
 		// queue is a FIFO struct on leaf nodes.
 		queue Queue
 	}
@@ -48,9 +45,8 @@ func (n *node) stringRecursive(level int) string {
 
 	tabs := strings.Repeat("\t", level)
 	this := fmt.Sprintf("%s%s (%f)\n%s%d queued\n", tabs, n.label, n.weight, tabs, n.queue.Len())
-	children := make([]string, 0, n.children.Len())
-	for iterator := n.children.Front(); iterator != nil; iterator = iterator.Next() {
-		child := iterator.Value.(*node)
+	children := make([]string, 0, len(n.children))
+	for _, child := range n.children {
 		children = append(children, child.stringRecursive(level+1))
 	}
 	return this + strings.Join(children, "\n")
@@ -61,28 +57,11 @@ func (n *node) String() string {
 	return n.stringRecursive(0)
 }
 
-// recalculateRanges updates the relative weights of the childrens.
-func (n *node) recalculateRanges() {
-	// lock should be already acquired by caller
-	total := float32(0.0)
-	for iterator := n.children.Front(); iterator != nil; iterator = iterator.Next() {
-		total += iterator.Value.(*node).weight
-	}
-	accumulator := float32(0)
-	for iterator := n.children.Front(); iterator != nil; iterator = iterator.Next() {
-		child := iterator.Value.(*node)
-		width := (child.weight / total)
-		n.childrenRanges[child.label] = accumulator + width
-		accumulator += width
-	}
-}
-
 // FindChild returns the child with the given label.
 // nil is returned if not found.
 func (n *node) findChild(label string) *node {
 	// lock should be already acquired by caller
-	for iterator := n.children.Front(); iterator != nil; iterator = iterator.Next() {
-		child := iterator.Value.(*node)
+	for _, child := range n.children {
 		if child.label == label {
 			return child
 		}
@@ -104,12 +83,11 @@ func (n *node) Push(provider InfoProvider, keys []string, labels map[string]stri
 		child := n.findChild(label)
 		if child == nil {
 			child = &node{
-				label:          label,
-				weight:         provider.GetWeight(first, label),
-				childrenRanges: make(map[string]float32),
+				label:    label,
+				weight:   provider.GetWeight(first, label),
+				children: make([]*node, 0, 16),
 			}
-			n.children.PushBack(child)
-			n.recalculateRanges()
+			n.children = append(n.children, child)
 		}
 		child.Push(provider, remain, labels, i)
 	}
@@ -118,11 +96,13 @@ func (n *node) Push(provider InfoProvider, keys []string, labels map[string]stri
 // Remove removes the child and associated data.
 func (n *node) remove(child *node) {
 	// lock should be already acquired by caller
-	delete(n.childrenRanges, child.label)
-	for iterator := n.children.Front(); iterator != nil; iterator = iterator.Next() {
-		ptr := iterator.Value.(*node)
+	for index, ptr := range n.children {
 		if ptr == child {
-			n.children.Remove(iterator)
+			// Swap last with this one, and shrink
+			// See https://github.com/golang/go/wiki/SliceTricks (delete without preserving order)
+			count := len(n.children)
+			n.children[index] = n.children[count-1]
+			n.children = n.children[:count-1]
 			return
 		}
 	}
@@ -132,21 +112,36 @@ func (n *node) remove(child *node) {
 func (n *node) Empty() bool {
 	n.mutex.RLock()
 	defer n.mutex.RUnlock()
-	return n.queue.Len() == 0 && n.children.Len() == 0
+	return n.queue.Len() == 0 && len(n.children) == 0
+}
+
+// recalculateRanges updates the relative weights of the childrens.
+func recalculateRanges(children *[]*node) map[string]float32 {
+	ranges := make(map[string]float32)
+	// lock should be already acquired by caller
+	total := float32(0.0)
+	for _, child := range *children {
+		total += child.weight
+	}
+	accumulator := float32(0)
+	for _, child := range *children {
+		width := (child.weight / total)
+		ranges[child.label] = accumulator + width
+		accumulator += width
+	}
+	return ranges
 }
 
 // pickChild chooses a random node according to their weights.
-func (n *node) pickChild() *node {
-	// lock should be already acquired by caller
+func pickChild(children *[]*node) *node {
+	ranges := recalculateRanges(children)
 	chance := rand.Float32()
-	for iterator := n.children.Front(); iterator != nil; iterator = iterator.Next() {
-		child := iterator.Value.(*node)
-		top := n.childrenRanges[child.label]
+	for _, child := range *children {
+		top := ranges[child.label]
 		if top >= chance {
 			return child
 		}
 	}
-	// Should never happen, really, unless node is empty
 	return nil
 }
 
@@ -157,7 +152,7 @@ func (n *node) popRecursive(provider InfoProvider, path []string) (interface{}, 
 
 	n.mutex.RLock()
 	nQueue := n.queue.Len()
-	nChildren := n.children.Len()
+	nChildren := len(n.children)
 	n.mutex.RUnlock()
 
 	// Nothing to do
@@ -189,7 +184,7 @@ func (n *node) popRecursive(provider InfoProvider, path []string) (interface{}, 
 	// We choose a random child based on their weight, and ask recursively
 	n.mutex.RLock()
 
-	child := n.pickChild()
+	child := pickChild(&n.children)
 	if child == nil {
 		panic("Unexpected nil child")
 	}
@@ -202,7 +197,6 @@ func (n *node) popRecursive(provider InfoProvider, path []string) (interface{}, 
 		if child.Empty() {
 			n.mutex.Lock()
 			n.remove(child)
-			n.recalculateRanges()
 			n.mutex.Unlock()
 		}
 	}
