@@ -26,7 +26,9 @@ import (
 	"gitlab.cern.ch/flutter/echelon/testutil"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"sort"
+	"time"
 )
 
 const (
@@ -258,8 +260,11 @@ func (s *SimulationProvider) load(path string) {
 
 // main is the entry point
 func main() {
+	rand.Seed(time.Now().UnixNano())
+
 	generate := flag.Int("generate", 1000, "How many transfers to generate")
 	pick := flag.Int("pick", 100, "How many transfers to pick")
+	dump := flag.String("dump-queue", "", "Dump the remaining queue into this file")
 	flag.Parse()
 
 	if flag.NArg() == 0 {
@@ -307,5 +312,12 @@ func main() {
 	fmt.Println("\nLink")
 	for key := range countLink {
 		fmt.Printf("%s\t%d\n", key, countLink[key])
+	}
+
+	// Dump the remaining queue
+	if *dump != "" {
+		if err := ioutil.WriteFile(*dump, []byte(queue.String()), 0775); err != nil {
+			fmt.Println("Failed to dump the queue:", err)
+		}
 	}
 }

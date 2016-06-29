@@ -47,7 +47,7 @@ func (n *node) stringRecursive(level int) string {
 	defer n.mutex.RUnlock()
 
 	tabs := strings.Repeat("\t", level)
-	this := fmt.Sprintf("%s%s (%f)\n%s%v\n", tabs, n.label, n.weight, tabs, n.queue)
+	this := fmt.Sprintf("%s%s (%f)\n%s%d queued\n", tabs, n.label, n.weight, tabs, n.queue.Len())
 	children := make([]string, 0, n.children.Len())
 	for iterator := n.children.Front(); iterator != nil; iterator = iterator.Next() {
 		child := iterator.Value.(*node)
