@@ -133,16 +133,16 @@ func recalculateRanges(children *[]*node) map[string]float32 {
 }
 
 // pickChild chooses a random node according to their weights.
-func pickChild(children *[]*node) *node {
+func pickChild(children *[]*node) (int, *node) {
 	ranges := recalculateRanges(children)
 	chance := rand.Float32()
-	for _, child := range *children {
+	for index, child := range *children {
 		top := ranges[child.label]
 		if top >= chance {
-			return child
+			return index, child
 		}
 	}
-	return nil
+	return -1, nil
 }
 
 // dequeueRecursive pops a queued element if there are enough slots available for all the intermediate
@@ -182,15 +182,34 @@ func (n *node) popRecursive(provider InfoProvider, path []string) (interface{}, 
 
 	// Intermediate node
 	// We choose a random child based on their weight, and ask recursively
+	// Since we may be unlucky enough to pick a path without available slots deeper down,
+	// we iterate until we exhaust all possible children
 	n.mutex.RLock()
 
-	child := pickChild(&n.children)
-	if child == nil {
-		panic("Unexpected nil child")
+	var element interface{}
+	var child *node
+	var index int
+
+	possibleChoices := make([]*node, len(n.children))
+	copy(possibleChoices, n.children)
+
+	for element == nil && err == nil && len(possibleChoices) > 0 {
+		index, child = pickChild(&possibleChoices)
+		if child == nil {
+			panic("Unexpected nil child")
+		}
+
+		element, err = child.popRecursive(provider, path)
+		// Presumably, not enough slots
+		// Drop this one and pick another one again, until we run out of children
+		if element == nil && err == nil {
+			possibleChoices[index] = possibleChoices[len(possibleChoices)-1]
+			possibleChoices = possibleChoices[:len(possibleChoices)-1]
+		}
 	}
 
-	element, err := child.popRecursive(provider, path)
 	n.mutex.RUnlock()
+
 	if element != nil {
 		provider.ConsumeSlot(path)
 		// Drop child if empty
