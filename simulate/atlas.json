@@ -1,0 +1,28 @@
+{
+  "Choices": {
+    "Vos": ["atlas"],
+    "Storages": ["gsiftp://dpm.cern.ch", "srm://castor.cern.ch", "gsiftp://dcache.pic.es"],
+    "Activities": ["default", "express", "production", "staging", "t0", "user"]
+  },
+  "Config": {
+    "Activities": {
+      "default": 0.02,
+      "express": 0.4,
+      "production": 0.5,
+      "staging": 0.5,
+      "t0": 0.7,
+      "user": 0.1
+    },
+    "SlotsAsSource": {
+      "gsiftp://dcache.pic.es": 80,
+      "srm://castor.cern.ch": 60
+    },
+    "SlotsAsDestination": {
+      "gsiftp://dcache.pic.es": 80,
+      "srm://castor.cern.ch": 60
+    },
+    "SlotsPerLink": {
+      "gsiftp://dcache.pic.es srm://castor.cern.ch": 40
+    }
+  }
+}

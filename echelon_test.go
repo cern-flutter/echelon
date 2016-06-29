@@ -18,7 +18,7 @@ package echelon
 
 import (
 	"container/list"
-	"github.com/satori/go.uuid"
+	"gitlab.cern.ch/flutter/echelon/testutil"
 	"math/rand"
 	"reflect"
 	"testing"
@@ -26,27 +26,18 @@ import (
 )
 
 type (
-	// Mock for testing
-	Transfer struct {
-		transferId          string
-		source, destination string
-		sourceSe, destSe    string
-		vo                  string
-		activity            string
-	}
-
 	TestProvider struct{}
 )
 
 func (t *TestProvider) Keys() []string {
-	return []string{"destSe", "vo", "activity", "sourceSe"}
+	return []string{"DestSe", "Vo", "Activity", "SourceSe"}
 }
 
 func (t *TestProvider) GetWeight(field, value string) float32 {
 	switch field {
-	case "activity":
+	case "Activity":
 		return 0.1
-	case "vo":
+	case "Vo":
 		return 0.5
 	default:
 		return 1
@@ -66,18 +57,7 @@ func TestSimple(t *testing.T) {
 
 	echelon := New(&TestProvider{})
 	for i := 0; i < N; i++ {
-		sourceSe := randomChoice(storages)
-		destSe := randomChoice(storages)
-		file := randomFile()
-
-		transfer := &Transfer{
-			source:      destSe + file,
-			destination: sourceSe + file,
-			sourceSe:    sourceSe,
-			destSe:      destSe,
-			vo:          randomChoice(vos),
-			activity:    randomChoice(activities),
-		}
+		transfer := testutil.GenerateRandomTransfer()
 		if err := echelon.Enqueue(transfer); err != nil {
 			t.Fatal(err)
 		}
@@ -105,18 +85,7 @@ func TestRacy1(t *testing.T) {
 	done := make(chan bool)
 	f := func() {
 		for i := 0; i < N; i++ {
-			sourceSe := randomChoice(storages)
-			destSe := randomChoice(storages)
-			file := randomFile()
-
-			transfer := &Transfer{
-				source:      destSe + file,
-				destination: sourceSe + file,
-				sourceSe:    sourceSe,
-				destSe:      destSe,
-				vo:          randomChoice(vos),
-				activity:    randomChoice(activities),
-			}
+			transfer := testutil.GenerateRandomTransfer()
 			if err := echelon.Enqueue(transfer); err != nil {
 				t.Fatal(err)
 			}
@@ -137,24 +106,12 @@ func TestRacy2(t *testing.T) {
 	echelon := New(&TestProvider{})
 	done := make(chan bool)
 
-	produced := make([]*Transfer, N)
-	consumed := make(map[string]*Transfer)
+	produced := make([]*testutil.Transfer, N)
+	consumed := make(map[string]*testutil.Transfer)
 
 	producer := func() {
 		for i := 0; i < N; i++ {
-			sourceSe := randomChoice(storages)
-			destSe := randomChoice(storages)
-			file := randomFile()
-
-			transfer := &Transfer{
-				transferId:  uuid.NewV4().String(),
-				source:      destSe + file,
-				destination: sourceSe + file,
-				sourceSe:    sourceSe,
-				destSe:      destSe,
-				vo:          randomChoice(vos),
-				activity:    randomChoice(activities),
-			}
+			transfer := testutil.GenerateRandomTransfer()
 
 			// Some time before the event to queue arrives
 			time.Sleep(time.Duration(rand.Intn(50)) * time.Millisecond)
@@ -174,8 +131,8 @@ func TestRacy2(t *testing.T) {
 			if item, err := echelon.Dequeue(); err != nil {
 				t.Fatal(err)
 			} else if item != nil {
-				transfer := item.(*Transfer)
-				consumed[transfer.transferId] = transfer
+				transfer := item.(*testutil.Transfer)
+				consumed[transfer.TransferId] = transfer
 				t.Log("- Dequeue", i)
 				i++
 			} else {
@@ -201,7 +158,7 @@ func TestRacy2(t *testing.T) {
 	}
 
 	for _, p := range produced {
-		c := consumed[p.transferId]
+		c := consumed[p.TransferId]
 		if c == nil {
 			t.Fatal("Missing consumed transfer")
 		}

@@ -17,41 +17,15 @@
 package echelon
 
 import (
-	"fmt"
-	"math/rand"
+	"gitlab.cern.ch/flutter/echelon/testutil"
 	"testing"
 )
-
-var storages = []string{"srm://dpm.cern.ch", "gsiftp://dpm.cern.ch", "srm://castor.cern.ch", "gsiftp://castor.cern.ch"}
-var vos = []string{"atlas", "cms", "lhcb", "dteam"}
-var activities = []string{"default", "express", "production", "user", "test"}
-var paths = []string{"/var/log", "/etc", "/tmp", "/scratch"}
-
-func randomChoice(choices []string) string {
-	return choices[rand.Intn(len(choices))]
-}
-
-func randomFile() string {
-	path := randomChoice(paths)
-	return fmt.Sprintf("%s/file.%d", path, rand.Intn(255))
-}
 
 func BenchmarkEchelonEnqueue(b *testing.B) {
 	e := New(&TestProvider{})
 
 	for i := 0; i < b.N; i++ {
-		sourceSe := randomChoice(storages)
-		destSe := randomChoice(storages)
-		file := randomFile()
-
-		transfer := &Transfer{
-			source:      destSe + file,
-			destination: sourceSe + file,
-			sourceSe:    sourceSe,
-			destSe:      destSe,
-			vo:          randomChoice(vos),
-			activity:    randomChoice(activities),
-		}
+		transfer := testutil.GenerateRandomTransfer()
 		if err := e.Enqueue(transfer); err != nil {
 			b.Fatal(err)
 		}
@@ -64,18 +38,7 @@ func BenchmarkEchelonDequeue(b *testing.B) {
 	e := New(&TestProvider{})
 	// Populate
 	for i := 0; i < b.N; i++ {
-		sourceSe := randomChoice(storages)
-		destSe := randomChoice(storages)
-		file := randomFile()
-
-		transfer := &Transfer{
-			source:      destSe + file,
-			destination: sourceSe + file,
-			sourceSe:    sourceSe,
-			destSe:      destSe,
-			vo:          randomChoice(vos),
-			activity:    randomChoice(activities),
-		}
+		transfer := testutil.GenerateRandomTransfer()
 		if err := e.Enqueue(transfer); err != nil {
 			b.Fatal(err)
 		}
