@@ -152,6 +152,7 @@ func (i *SimulationProvider) GetAvailableSlots(path []string) (int, error) {
 	case 5:
 		dest := path[1]
 		source := path[4]
+
 		link := source + " " + dest
 		var limitSource, limitLink int
 		var ok bool
@@ -186,9 +187,9 @@ func (i *SimulationProvider) ConsumeSlot(path []string) error {
 			return errors.New("Tried to consume a slot on an exhausted destination")
 		}
 	// For source and link
-	case 4:
+	case 5:
 		dest := path[1]
-		source := path[3]
+		source := path[4]
 		link := source + "&" + dest
 		i.Config.SlotsAsSource[source]--
 		i.Config.SlotsPerLink[link]--
