@@ -45,27 +45,25 @@ func (q *Queue) Close() {
 
 // Push adds a new element to the back of the queue.
 // element must be gob-serializable
-func (q *Queue) Push(element interface{}) (err error) {
+func (q *Queue) Push(element interface{}) error {
 	buffer := &bytes.Buffer{}
 	encoder := gob.NewEncoder(buffer)
-	if err = encoder.Encode(element); err != nil {
-		return
+	if err := encoder.Encode(element); err != nil {
+		return err
 	}
 	return q.dirq.Produce(buffer.Bytes())
 }
 
 // Pop removes an element from the front of the queue.
 // It return ErrEmpty if empty
-func (q *Queue) Pop(element interface{}) (err error) {
+func (q *Queue) Pop(element interface{}) error {
 	if serialized, err := q.dirq.ConsumeOne(); err != nil {
 		return err
-	} else if serialized == nil {
-		return ErrEmpty
-	} else {
+	} else if serialized != nil {
 		buffer := bytes.NewBuffer(serialized)
-		err = gob.NewDecoder(buffer).Decode(element)
+		return gob.NewDecoder(buffer).Decode(element)
 	}
-	return
+	return ErrEmpty
 }
 
 // Empty returns true if there are no elements queued
