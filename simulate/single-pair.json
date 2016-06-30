@@ -14,10 +14,10 @@
       "user": 0.1
     },
     "SlotsAsSource": {
-      "srm://castor.cern.ch": 200
+      "srm://castor.cern.ch": 50
     },
     "SlotsAsDestination": {
-      "srm://castor.cern.ch": 200
+      "srm://castor.cern.ch": 50
     },
     "SlotsPerLink": {
     }

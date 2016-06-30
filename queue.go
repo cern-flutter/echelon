@@ -19,7 +19,6 @@ package echelon
 import (
 	"bytes"
 	"encoding/gob"
-	"errors"
 	"gitlab.cern.ch/flutter/go-dirq"
 )
 
@@ -31,12 +30,6 @@ type (
 	}
 )
 
-var (
-	ErrEmpty          = errors.New("Empty queue")
-	ErrNotEnoughSlots = errors.New("Not enough slots")
-	ErrNilChild       = errors.New("Unexpected nil child")
-)
-
 // NewQueue creates a new queue
 func NewQueue(dir string) (q *Queue, err error) {
 	q = &Queue{dir: dir}
@@ -44,7 +37,7 @@ func NewQueue(dir string) (q *Queue, err error) {
 	return
 }
 
-// Closes releases resources used by the queue
+// Close releases resources used by the queue
 func (q *Queue) Close() {
 	q.dirq.Purge()
 	q.dirq.Close()

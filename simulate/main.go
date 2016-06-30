@@ -18,7 +18,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"github.com/satori/go.uuid"
@@ -27,6 +26,7 @@ import (
 	"io/ioutil"
 	"log"
 	"math/rand"
+	"os"
 	"sort"
 	"time"
 )
@@ -107,10 +107,10 @@ func (i *SimulationProvider) Keys() []string {
 // GetWeight returns the associated weight with the field with the given value
 // For instance, "Activity" field, value "Express", has a different weight that "Activity"
 // field, value "User"
-func (i *SimulationProvider) GetWeight(field, value string) float32 {
+func (i *SimulationProvider) GetWeight(route []string) float32 {
 	// Activities do not have equal weights
-	if field == "Activity" {
-		if value := i.Config.Activities[value]; value != 0 {
+	if len(route) == 4 {
+		if value := i.Config.Activities[route[3]]; value != 0 {
 			return value
 		} else {
 			return i.Config.Activities["default"]
@@ -126,15 +126,15 @@ func (i *SimulationProvider) GetWeight(field, value string) float32 {
 // It doesn't limit by Vo
 // It doesn't limit per Activity
 // It limits the fifth level based on "Source" *and* "Link" slots
-func (i *SimulationProvider) GetAvailableSlots(path []string) (int, error) {
+func (i *SimulationProvider) GetAvailableSlots(route []string) (int, error) {
 	slots := 0
-	switch len(path) {
-	// Out side (root)
+	switch len(route) {
+	// Our side (root)
 	case 1:
 		slots = 1000
 	// For destination
 	case 2:
-		dest := path[1]
+		dest := route[1]
 		if value, ok := i.Config.SlotsAsDestination[dest]; ok {
 			slots = value
 		} else {
@@ -150,10 +150,10 @@ func (i *SimulationProvider) GetAvailableSlots(path []string) (int, error) {
 	// For the full path, we do have a limitation per link and per storage
 	// Pick the lower
 	case 5:
-		dest := path[1]
-		source := path[4]
-
+		dest := route[1]
+		source := route[4]
 		link := source + " " + dest
+
 		var limitSource, limitLink int
 		var ok bool
 		if limitSource, ok = i.Config.SlotsAsSource[source]; !ok {
@@ -170,7 +170,7 @@ func (i *SimulationProvider) GetAvailableSlots(path []string) (int, error) {
 			slots = limitLink
 		}
 	default:
-		return 0, fmt.Errorf("Unexpected path length: %d", len(path))
+		return 0, fmt.Errorf("Unexpected path length: %d", len(route))
 	}
 	return slots, nil
 }
@@ -184,20 +184,23 @@ func (i *SimulationProvider) ConsumeSlot(path []string) error {
 		dest := path[1]
 		i.Config.SlotsAsDestination[dest]--
 		if i.Config.SlotsAsDestination[dest] < 0 {
-			return errors.New("Tried to consume a slot on an exhausted destination")
+			return fmt.Errorf("Tried to consume a slot on an exhausted destination: %s %d",
+				dest, i.Config.SlotsAsDestination[dest])
 		}
 	// For source and link
 	case 5:
 		dest := path[1]
 		source := path[4]
-		link := source + "&" + dest
+		link := source + " " + dest
 		i.Config.SlotsAsSource[source]--
 		i.Config.SlotsPerLink[link]--
 		if i.Config.SlotsAsSource[source] < 0 {
-			return errors.New("Tried to consume a slot on an exhausted source")
+			return fmt.Errorf("Tried to consume a slot on an exhausted source: %s %d",
+				source, i.Config.SlotsAsSource[source])
 		}
 		if i.Config.SlotsPerLink[link] < 0 {
-			return errors.New("Tried to consume a slot on an exhausted link")
+			return fmt.Errorf("Tried to consume a slot on an exhausted link: %s %d",
+				link, i.Config.SlotsPerLink[link])
 		}
 	}
 	return nil
@@ -233,18 +236,18 @@ func (s *SimulationProvider) run(queue *echelon.Echelon, n int) (int, map[QueueI
 
 	var i int
 	for i = 0; i < n; i++ {
-		if item, err := queue.Dequeue(); err != nil {
+		transfer := &testutil.Transfer{}
+		if err := queue.Dequeue(transfer); err != nil {
+			if err == echelon.ErrEmpty || err == echelon.ErrNotEnoughSlots {
+				fmt.Println("Run out of available elements")
+				break
+			}
 			log.Panic(err)
-		} else if item == nil {
-			fmt.Println("Run out of available elements")
-			break
-		} else {
-			transfer := item.(*testutil.Transfer)
-			consumed[QueueId{
-				transfer.SourceSe, transfer.DestSe,
-				transfer.Vo, transfer.Activity,
-			}]++
 		}
+		consumed[QueueId{
+			transfer.SourceSe, transfer.DestSe,
+			transfer.Vo, transfer.Activity,
+		}]++
 	}
 
 	return i, consumed
@@ -266,6 +269,8 @@ func main() {
 	generate := flag.Int("generate", 1000, "How many transfers to generate")
 	pick := flag.Int("pick", 100, "How many transfers to pick")
 	dump := flag.String("dump-queue", "", "Dump the remaining queue into this file")
+	dir := flag.String("dir", "/tmp/simulation", "Echelon path")
+	keepDirectory := flag.Bool("keep-dir", false, "Keep the echelon path once the simulation is done")
 	flag.Parse()
 
 	if flag.NArg() == 0 {
@@ -273,7 +278,7 @@ func main() {
 	}
 	simulation := &SimulationProvider{}
 	simulation.load(flag.Arg(0))
-	queue := echelon.New(simulation)
+	queue := echelon.New(*dir, simulation)
 
 	// Prepare queue
 	simulation.populate(queue, *generate)
@@ -282,6 +287,11 @@ func main() {
 	// Run simulation
 	consumed, quadCount := simulation.run(queue, *pick)
 	fmt.Println("Consumed", consumed)
+
+	// Clean up
+	if !*keepDirectory {
+		os.RemoveAll(*dir)
+	}
 
 	// We need to convert to a slice of QueueCount so we can sort
 	all := make(QueueCountSlice, 0, *pick)

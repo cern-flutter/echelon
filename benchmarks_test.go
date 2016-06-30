@@ -19,6 +19,7 @@ package echelon
 import (
 	"gitlab.cern.ch/flutter/echelon/testutil"
 	"testing"
+	"os"
 )
 
 func BenchmarkEchelonEnqueue(b *testing.B) {
@@ -31,6 +32,10 @@ func BenchmarkEchelonEnqueue(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
+
+	// Clean
+	b.StopTimer()
+	os.RemoveAll(BasePath)
 }
 
 func BenchmarkEchelonDequeue(b *testing.B) {
@@ -57,4 +62,8 @@ func BenchmarkEchelonDequeue(b *testing.B) {
 			b.Fatal("Unexpected nil")
 		}
 	}
+
+	// Clean
+	b.StopTimer()
+	os.RemoveAll(BasePath)
 }
