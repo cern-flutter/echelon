@@ -184,6 +184,55 @@ func TestRacy2(t *testing.T) {
 	}
 }
 
+func TestRestore(t *testing.T) {
+	N := 50
+	e1 := New(BasePath, &TestProvider{})
+
+	produced := make([]*testutil.Transfer, N)
+
+	for i := 0; i < N; i++ {
+		transfer := testutil.GenerateRandomTransfer()
+		if err := e1.Enqueue(transfer); err != nil {
+			t.Fatal(e1)
+		}
+		produced[i] = transfer
+	}
+
+	if len(produced) != N {
+		t.Fatal("Didn't produce the messages?")
+	}
+
+	e1.Close()
+
+	// Open a new one, must be able to consume what was generated before
+	e2 := New(BasePath, &TestProvider{})
+	defer e2.Close()
+
+	if err := e2.Restore(); err != nil {
+		t.Fatal(err)
+	}
+
+	consumed := make(map[string]*testutil.Transfer)
+
+	for i := 0; i < N; i++ {
+		transfer := &testutil.Transfer{}
+		if err := e2.Dequeue(transfer); err != nil {
+			t.Fatal(err)
+		}
+		consumed[transfer.TransferId] = transfer
+	}
+
+	for _, p := range produced {
+		c := consumed[p.TransferId]
+		if c == nil {
+			t.Fatal("Missing consumed transfer")
+		}
+		if !reflect.DeepEqual(*c, *p) {
+			t.Fatal("Produced and consumed do not match")
+		}
+	}
+}
+
 // Setup
 func TestMain(m *testing.M) {
 	os.RemoveAll(BasePath)
