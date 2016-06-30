@@ -22,11 +22,12 @@ import (
 )
 
 func BenchmarkEchelonEnqueue(b *testing.B) {
-	e := New(&TestProvider{})
+	echelon := New(BasePath, &TestProvider{})
+	defer echelon.Close()
 
 	for i := 0; i < b.N; i++ {
 		transfer := testutil.GenerateRandomTransfer()
-		if err := e.Enqueue(transfer); err != nil {
+		if err := echelon.Enqueue(transfer); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -35,21 +36,24 @@ func BenchmarkEchelonEnqueue(b *testing.B) {
 func BenchmarkEchelonDequeue(b *testing.B) {
 	b.StopTimer()
 
-	e := New(&TestProvider{})
+	echelon := New(BasePath, &TestProvider{})
+	defer echelon.Close()
+
 	// Populate
 	for i := 0; i < b.N; i++ {
 		transfer := testutil.GenerateRandomTransfer()
-		if err := e.Enqueue(transfer); err != nil {
+		if err := echelon.Enqueue(transfer); err != nil {
 			b.Fatal(err)
 		}
 	}
 
 	// Dequeue
 	b.StartTimer()
+	transfer := &testutil.Transfer{}
 	for i := 0; i < b.N; i++ {
-		if item, err := e.Dequeue(); err != nil {
+		if err := echelon.Dequeue(transfer); err != nil {
 			b.Fatal(err)
-		} else if item == nil {
+		} else if false {
 			b.Fatal("Unexpected nil")
 		}
 	}

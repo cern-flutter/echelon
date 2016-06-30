@@ -19,6 +19,9 @@ package echelon
 import (
 	"fmt"
 	"math/rand"
+	"net/url"
+	"os"
+	"path"
 	"strings"
 	"sync"
 )
@@ -28,33 +31,94 @@ type (
 	node struct {
 		mutex sync.RWMutex
 		// label, or name, of the node. For instance, "express".
-		label string
-		// weight of the node.
-		weight float32
+		name string
 		// children nodes, as they were inserted
 		children []*node
 		// queue is a FIFO struct on leaf nodes.
-		queue Queue
+		queue *Queue
+		// dir is the phisical file path where the underlying queues are stored
+		dir string
 	}
 )
 
-// stringRecursive serializes to a printable string this node, and recurses
-func (n *node) stringRecursive(level int) string {
-	n.mutex.RLock()
-	defer n.mutex.RUnlock()
-
-	tabs := strings.Repeat("\t", level)
-	this := fmt.Sprintf("%s%s (%f)\n%s%d queued\n", tabs, n.label, n.weight, tabs, n.queue.Len())
-	children := make([]string, 0, len(n.children))
-	for _, child := range n.children {
-		children = append(children, child.stringRecursive(level+1))
+// Close recursively frees resources
+func (this *node) Close() {
+	this.mutex.Lock()
+	defer this.mutex.Unlock()
+	for _, child := range this.children {
+		child.Close()
 	}
-	return this + strings.Join(children, "\n")
+	this.children = nil
 }
 
 // String returns a printable representation of the (partial) tree
-func (n *node) String() string {
-	return n.stringRecursive(0)
+func (this *node) String() string {
+	return this.stringRecursive(0)
+}
+
+// stringRecursive serializes to a printable string this node, and recurses
+func (this *node) stringRecursive(level int) string {
+	this.mutex.RLock()
+	defer this.mutex.RUnlock()
+
+	tabs := strings.Repeat("\t", level)
+	repr := fmt.Sprintf("%s%s\n%s\n", tabs, this.name, tabs)
+	children := make([]string, 0, len(this.children))
+	for _, child := range this.children {
+		children = append(children, child.stringRecursive(level+1))
+	}
+	return repr + strings.Join(children, "\n")
+}
+
+// Push adds a new object to the tree. The InfoProvider is used to resolve weights.
+// This method is recursive.
+func (this *node) Push(e *Echelon, route []string, item interface{}) error {
+	return this.pushRecursive(e, route, item)
+}
+
+// pushRecursive implements Push
+func (this *node) pushRecursive(e *Echelon, route []string, element interface{}) error {
+	if route[0] != this.name {
+		panic("Unexpected echelon traversal")
+	}
+
+	// End of the route
+	if len(route) == 1 {
+		this.mutex.Lock()
+		defer this.mutex.Unlock()
+		if this.queue == nil {
+			var err error
+			if this.queue, err = NewQueue(this.dir); err != nil {
+				return err
+			}
+		}
+		this.queue.Push(element)
+		return nil
+	}
+
+	this.mutex.RLock()
+	child := this.findChild(route[1])
+	this.mutex.RUnlock()
+
+	if child == nil {
+		this.mutex.Lock()
+		child = &node{
+			name:     route[1],
+			children: make([]*node, 0, 16),
+			dir:      appendDir(this.dir, route[1]),
+		}
+		this.children = append(this.children, child)
+		this.mutex.Unlock()
+	}
+
+	this.mutex.RLock()
+	defer this.mutex.RUnlock()
+	return child.pushRecursive(e, route[1:], element)
+}
+
+// buildFsDir builds the physical  path on disk
+func appendDir(base, name string) string {
+	return path.Join(base, url.QueryEscape(name))
 }
 
 // FindChild returns the child with the given label.
@@ -62,82 +126,66 @@ func (n *node) String() string {
 func (n *node) findChild(label string) *node {
 	// lock should be already acquired by caller
 	for _, child := range n.children {
-		if child.label == label {
+		if child.name == label {
 			return child
 		}
 	}
 	return nil
 }
 
-// Push adds a new object to the tree. The InfoProvider is used to resolve weights.
-// This method is recursive.
-func (n *node) Push(provider InfoProvider, keys []string, labels map[string]string, i interface{}) {
-	n.mutex.Lock()
-	defer n.mutex.Unlock()
-
-	if len(keys) == 0 {
-		n.queue.Push(i)
-	} else {
-		first, remain := keys[0], keys[1:]
-		label := labels[first]
-		child := n.findChild(label)
-		if child == nil {
-			child = &node{
-				label:    label,
-				weight:   provider.GetWeight(first, label),
-				children: make([]*node, 0, 16),
-			}
-			n.children = append(n.children, child)
-		}
-		child.Push(provider, remain, labels, i)
-	}
-}
-
 // Remove removes the child and associated data.
-func (n *node) remove(child *node) {
+func (this *node) remove(child *node) {
 	// lock should be already acquired by caller
-	for index, ptr := range n.children {
+	for index, ptr := range this.children {
 		if ptr == child {
+			if child.queue != nil {
+				child.queue.Close()
+			}
+			os.RemoveAll(child.dir)
 			// Swap last with this one, and shrink
 			// See https://github.com/golang/go/wiki/SliceTricks (delete without preserving order)
-			count := len(n.children)
-			n.children[index] = n.children[count-1]
-			n.children = n.children[:count-1]
+			count := len(this.children)
+			this.children[index] = this.children[count-1]
+			this.children = this.children[:count-1]
 			return
 		}
 	}
 }
 
 // Empty returns true if the node has no children or queued elements.
-func (n *node) Empty() bool {
-	n.mutex.RLock()
-	defer n.mutex.RUnlock()
-	return n.queue.Len() == 0 && len(n.children) == 0
+func (this *node) Empty() (bool, error) {
+	this.mutex.RLock()
+	defer this.mutex.RUnlock()
+
+	if this.queue != nil {
+		return this.queue.Empty()
+	}
+	return len(this.children) == 0, nil
 }
 
 // recalculateRanges updates the relative weights of the childrens.
-func recalculateRanges(children *[]*node) map[string]float32 {
-	ranges := make(map[string]float32)
+func recalculateRanges(weights *[]float32) []float32 {
+	ranges := make([]float32, len(*weights))
 	// lock should be already acquired by caller
 	total := float32(0.0)
-	for _, child := range *children {
-		total += child.weight
+	for _, w := range *weights {
+		total += w
 	}
 	accumulator := float32(0)
-	for _, child := range *children {
-		width := (child.weight / total)
-		ranges[child.label] = accumulator + width
+	for index, w := range *weights {
+		width := (w / total)
+		ranges[index] = accumulator + width
 		accumulator += width
 	}
 	return ranges
 }
 
 // pickChild chooses a random node according to their weights.
-func pickChild(children *[]*node) (int, *node) {
-	ranges := recalculateRanges(children)
+func pickChild(children *[]*node, weights *[]float32) (int, *node) {
+	ranges := recalculateRanges(weights)
 	chance := rand.Float32()
 	for index, child := range *children {
-		top := ranges[child.label]
+		top := ranges[index]
 		if top >= chance {
 			return index, child
 		}
@@ -145,86 +193,121 @@ func pickChild(children *[]*node) (int, *node) {
 	return -1, nil
 }
 
-// dequeueRecursive pops a queued element if there are enough slots available for all the intermediate
-// steps in the tree.
-func (n *node) popRecursive(provider InfoProvider, path []string) (interface{}, error) {
-	path = append(path, n.label)
-
-	n.mutex.RLock()
-	nQueue := n.queue.Len()
-	nChildren := len(n.children)
-	n.mutex.RUnlock()
-
-	// Nothing to do
-	if nQueue == 0 && nChildren == 0 {
-		return nil, nil
-	}
-
-	// Available slots for the path so far
-	slots, err := provider.GetAvailableSlots(path)
+// popFromLeafNode extracts an element from the queue
+func (this *node) popLeafNode(element interface{}, e *Echelon, route []string) error {
+	// mutex must be hold by caller
+	slots, err := e.provider.GetAvailableSlots(route)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	// Nothing available, so do not even bother recursing
 	if slots <= 0 {
-		return nil, nil
+		return ErrNotEnoughSlots
 	}
+
+	err = this.queue.Pop(element)
+	if err != nil {
+		return err
+	}
+	return e.provider.ConsumeSlot(route)
+}
+
+// popRecursive pops a queued element if there are enough slots available for all the intermediate
+// steps in the tree.
+func (this *node) popRecursive(element interface{}, e *Echelon, parent []string) error {
+	route := append(parent, this.name)
+
+	this.mutex.RLock()
 
 	// Leaf node
-	if nChildren == 0 {
-		n.mutex.Lock()
-		defer n.mutex.Unlock()
-
-		element := n.queue.Pop()
-		provider.ConsumeSlot(path)
-		return element, nil
+	if this.queue != nil {
+		this.mutex.RUnlock()
+		this.mutex.Lock()
+		defer this.mutex.Unlock()
+		return this.popLeafNode(element, e, route)
 	}
+
+	this.mutex.RUnlock()
+
+	// Available slots for the path so far
+	slots, err := e.provider.GetAvailableSlots(route)
+	if err != nil {
+		return err
+	} else if slots <= 0 {
+		// Nothing available, so do not even bother recursing
+		return ErrNotEnoughSlots
+	}
+
+	this.mutex.RLock()
 
 	// Intermediate node
 	// We choose a random child based on their weight, and ask recursively
 	// Since we may be unlucky enough to pick a path without available slots deeper down,
 	// we iterate until we exhaust all possible children
-	n.mutex.RLock()
+	var selected *node
 
-	var element interface{}
-	var child *node
-	var index int
+	possibleChoices := make([]*node, len(this.children))
+	copy(possibleChoices, this.children)
+	weights := make([]float32, len(this.children))
+	childRoute := make([]string, len(route)+1)
 
-	possibleChoices := make([]*node, len(n.children))
-	copy(possibleChoices, n.children)
+	for index, child := range possibleChoices {
+		childRoute[len(route)] = child.name
+		weights[index] = e.provider.GetWeight(childRoute)
+	}
 
-	for element == nil && err == nil && len(possibleChoices) > 0 {
-		index, child = pickChild(&possibleChoices)
+	for len(possibleChoices) > 0 {
+		index, child := pickChild(&possibleChoices, &weights)
 		if child == nil {
-			panic("Unexpected nil child")
+			this.mutex.RUnlock()
+			return ErrNilChild
 		}
 
-		element, err = child.popRecursive(provider, path)
-		// Presumably, not enough slots
-		// Drop this one and pick another one again, until we run out of children
-		if element == nil && err == nil {
+		err = child.popRecursive(element, e, route)
+
+		if err == ErrNotEnoughSlots {
+			// Drop this one and pick another one again, until we run out of children
 			possibleChoices[index] = possibleChoices[len(possibleChoices)-1]
 			possibleChoices = possibleChoices[:len(possibleChoices)-1]
+			weights[index] = weights[len(weights)-1]
+			weights = weights[:len(weights)-1]
+		} else if err == nil {
+			// All good, so this is the chosen one
+			selected = child
+			break
+		} else {
+			// Some error we can not handle
+			break
 		}
 	}
 
-	n.mutex.RUnlock()
+	this.mutex.RUnlock()
 
-	if element != nil {
-		provider.ConsumeSlot(path)
-		// Drop child if empty
-		if child.Empty() {
-			n.mutex.Lock()
-			n.remove(child)
-			n.mutex.Unlock()
-		}
+	// If the error is set, bail out
+	if err != nil {
+		return err
+	} else if selected == nil {
+		// If we haven't got any error, but didn't select anyone, we are empty
+		return ErrEmpty
 	}
 
-	return element, err
+	// Tell the scoreboard we are using a slot
+	if err = e.provider.ConsumeSlot(route); err != nil {
+		return err
+	}
+
+	// Drop child if now empty
+	if empty, err := selected.Empty(); err != nil {
+		return err
+	} else if empty {
+		this.mutex.Lock()
+		this.remove(selected)
+		this.mutex.Unlock()
+	}
+	return nil
 }
 
 // Pop gets a queued element following the tree using the relative weights, if there are enough slots
 // available for the path. If there are no available slots, or nothing queued, then it returns nil.
-func (n *node) Pop(provider InfoProvider) (interface{}, error) {
-	return n.popRecursive(provider, []string{})
+func (this *node) Pop(element interface{}, e *Echelon) error {
+	return this.popRecursive(element, e, []string{})
 }

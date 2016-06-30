@@ -17,26 +17,65 @@
 package echelon
 
 import (
-	"container/list"
+	"bytes"
+	"encoding/gob"
+	"errors"
+	"gitlab.cern.ch/flutter/go-dirq"
 )
 
 type (
 	// Queue provides a simple FIFO implementation
 	Queue struct {
-		list.List
+		dir  string
+		dirq *dirq.Dirq
 	}
 )
 
+var (
+	ErrEmpty          = errors.New("Empty queue")
+	ErrNotEnoughSlots = errors.New("Not enough slots")
+	ErrNilChild       = errors.New("Unexpected nil child")
+)
+
+// NewQueue creates a new queue
+func NewQueue(dir string) (q *Queue, err error) {
+	q = &Queue{dir: dir}
+	q.dirq, err = dirq.New(dir)
+	return
+}
+
+// Closes releases resources used by the queue
+func (q *Queue) Close() {
+	q.dirq.Purge()
+	q.dirq.Close()
+}
+
 // Push adds a new element to the back of the queue.
-func (q *Queue) Push(element interface{}) {
-	q.PushBack(element)
+// element must be gob-serializable
+func (q *Queue) Push(element interface{}) (err error) {
+	buffer := &bytes.Buffer{}
+	encoder := gob.NewEncoder(buffer)
+	if err = encoder.Encode(element); err != nil {
+		return
+	}
+	return q.dirq.Produce(buffer.Bytes())
 }
 
 // Pop removes an element from the front of the queue.
-// It return nil if the queue is empty.
-func (q *Queue) Pop() interface{} {
-	if iter := q.Front(); iter != nil {
-		return q.Remove(iter)
+// It return ErrEmpty if empty
+func (q *Queue) Pop(element interface{}) (err error) {
+	if serialized, err := q.dirq.ConsumeOne(); err != nil {
+		return err
+	} else if serialized == nil {
+		return ErrEmpty
+	} else {
+		buffer := bytes.NewBuffer(serialized)
+		err = gob.NewDecoder(buffer).Decode(element)
 	}
-	return nil
+	return
+}
+
+// Empty returns true if there are no elements queued
+func (q *Queue) Empty() (bool, error) {
+	return q.dirq.Empty()
 }

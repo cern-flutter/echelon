@@ -20,6 +20,7 @@ import (
 	"container/list"
 	"gitlab.cern.ch/flutter/echelon/testutil"
 	"math/rand"
+	"os"
 	"reflect"
 	"testing"
 	"time"
@@ -29,16 +30,22 @@ type (
 	TestProvider struct{}
 )
 
+const (
+	BasePath = "/tmp/echelon"
+)
+
 func (t *TestProvider) Keys() []string {
 	return []string{"DestSe", "Vo", "Activity", "SourceSe"}
 }
 
-func (t *TestProvider) GetWeight(field, value string) float32 {
-	switch field {
-	case "Activity":
-		return 0.1
-	case "Vo":
+func (t *TestProvider) GetWeight(route []string) float32 {
+	switch len(route) {
+	// VO
+	case 3:
 		return 0.5
+	// Activity
+	case 4:
+		return 0.1
 	default:
 		return 1
 	}
@@ -55,7 +62,8 @@ func (t *TestProvider) ConsumeSlot(path []string) error {
 func TestSimple(t *testing.T) {
 	N := 10
 
-	echelon := New(&TestProvider{})
+	echelon := New(BasePath, &TestProvider{})
+	defer echelon.Close()
 	for i := 0; i < N; i++ {
 		transfer := testutil.GenerateRandomTransfer()
 		if err := echelon.Enqueue(transfer); err != nil {
@@ -64,14 +72,15 @@ func TestSimple(t *testing.T) {
 	}
 
 	elements := list.List{}
+	transfer := &testutil.Transfer{}
 	for {
-		if item, err := echelon.Dequeue(); err != nil {
+		if err := echelon.Dequeue(&transfer); err != nil && err != ErrEmpty {
 			t.Fatal(err)
-		} else if item != nil {
-			t.Log(item)
-			elements.PushBack(item)
-		} else {
+		} else if err == ErrEmpty {
 			break
+		} else {
+			t.Log(transfer)
+			elements.PushBack(transfer)
 		}
 	}
 	if elements.Len() != N {
@@ -81,7 +90,9 @@ func TestSimple(t *testing.T) {
 
 func TestRacy1(t *testing.T) {
 	N := 100
-	echelon := New(&TestProvider{})
+	echelon := New(BasePath, &TestProvider{})
+	defer echelon.Close()
+
 	done := make(chan bool)
 	f := func() {
 		for i := 0; i < N; i++ {
@@ -99,11 +110,16 @@ func TestRacy1(t *testing.T) {
 	for count := 0; count < 2; count++ {
 		_ = <-done
 	}
+
+	// Clean up for next tests
+	os.RemoveAll(BasePath)
 }
 
 func TestRacy2(t *testing.T) {
 	N := 50
-	echelon := New(&TestProvider{})
+	echelon := New(BasePath, &TestProvider{})
+	defer echelon.Close()
+
 	done := make(chan bool)
 
 	produced := make([]*testutil.Transfer, N)
@@ -127,11 +143,11 @@ func TestRacy2(t *testing.T) {
 	}
 	consumer := func() {
 		for i := 0; i < N; {
+			transfer := &testutil.Transfer{}
 			t.Log("+ Dequeue")
-			if item, err := echelon.Dequeue(); err != nil {
+			if err := echelon.Dequeue(transfer); err != nil && err != ErrEmpty {
 				t.Fatal(err)
-			} else if item != nil {
-				transfer := item.(*testutil.Transfer)
+			} else if err == nil {
 				consumed[transfer.TransferId] = transfer
 				t.Log("- Dequeue", i)
 				i++
@@ -166,4 +182,10 @@ func TestRacy2(t *testing.T) {
 			t.Fatal("Produced and consumed do not match")
 		}
 	}
+}
+
+// Setup
+func TestMain(m *testing.M) {
+	os.RemoveAll(BasePath)
+	os.Exit(m.Run())
 }
