@@ -24,7 +24,6 @@ import (
 	"os"
 	"path"
 	"strings"
-	"sync"
 )
 
 var (
@@ -37,7 +36,6 @@ var (
 type (
 	// Node models nodes inside the queue tree
 	node struct {
-		mutex sync.RWMutex
 		// label, or name, of the node. For instance, "express".
 		name string
 		// children nodes, as they were inserted
@@ -51,8 +49,6 @@ type (
 
 // Close recursively frees resources
 func (n *node) Close() {
-	n.mutex.Lock()
-	defer n.mutex.Unlock()
 	for _, child := range n.children {
 		child.Close()
 	}
@@ -66,9 +62,6 @@ func (n *node) String() string {
 
 // stringRecursive serializes to a printable string this node, and recurses
 func (n *node) stringRecursive(level int) string {
-	n.mutex.RLock()
-	defer n.mutex.RUnlock()
-
 	tabs := strings.Repeat("\t", level)
 	repr := fmt.Sprintf("%s%s\n%s\n", tabs, n.name, tabs)
 	children := make([]string, 0, len(n.children))
@@ -86,9 +79,6 @@ func (n *node) Push(e *Echelon, route []string, item interface{}) error {
 
 // pushRecursive implements Push
 func (n *node) pushRecursive(e *Echelon, route []string, element interface{}) error {
-	n.mutex.Lock()
-	defer n.mutex.Unlock()
-
 	if route[0] != n.name {
 		panic("Unexpected echelon traversal")
 	}
@@ -216,9 +206,6 @@ func (n *node) popLeafNode(element interface{}, e *Echelon, route []string) erro
 // popRecursive pops a queued element if there are enough slots available for all the intermediate
 // steps in the tree.
 func (n *node) popRecursive(element interface{}, e *Echelon, parent []string) error {
-	n.mutex.Lock()
-	defer n.mutex.Unlock()
-
 	route := append(parent, n.name)
 
 	// Leaf node

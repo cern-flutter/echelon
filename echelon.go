@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sync"
 )
 
 type (
@@ -49,6 +50,7 @@ type (
 		provider InfoProvider
 		keys     []string
 		root     *node
+		mutex    sync.RWMutex
 	}
 )
 
@@ -75,12 +77,16 @@ func New(base string, provider InfoProvider) *Echelon {
 
 // Close frees resources
 func (e *Echelon) Close() {
+	e.mutex.Lock()
+	defer e.mutex.Unlock()
 	e.root.Close()
 }
 
 // String is a convenience method to generate a printable representation of the content of an
 // Echelon instance.
 func (e *Echelon) String() string {
+	e.mutex.RLock()
+	defer e.mutex.RUnlock()
 	return fmt.Sprintf("Keys: %v\nQueue:\n%v", e.keys, e.root)
 }
 
@@ -103,6 +109,8 @@ func (e *Echelon) getRouteForItem(item interface{}) ([]string, error) {
 // Enqueue adss a set of objects to the queue. These objects must have fields corresponding to the returned
 // list by InfoProvider.Keys (for instance [SourceSe, DestSe, Vo, Activity])
 func (e *Echelon) Enqueue(items ...interface{}) error {
+	e.mutex.Lock()
+	defer e.mutex.Unlock()
 	for _, item := range items {
 		route, err := e.getRouteForItem(item)
 		if err != nil {
@@ -121,5 +129,7 @@ func (e *Echelon) Enqueue(items ...interface{}) error {
 // If the InfoProvider returns an error on any of its used methods, it will be propagated to the return value
 // of this method.
 func (e *Echelon) Dequeue(item interface{}) error {
+	e.mutex.Lock()
+	defer e.mutex.Unlock()
 	return e.root.Pop(item, e)
 }

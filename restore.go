@@ -24,14 +24,13 @@ import (
 
 // Restore rebuilds the tree representation from the data available on disk
 func (e *Echelon) Restore() error {
+	e.mutex.Lock()
+	defer e.mutex.Unlock()
 	return e.root.restoreRecursive(e, make([]string, 0))
 }
 
 // restoreRecursive rebuilds recursively the tree
 func (n *node) restoreRecursive(e *Echelon, parent []string) error {
-	n.mutex.Lock()
-	defer n.mutex.Unlock()
-
 	route := append(parent, n.name)
 
 	// Leaf node
