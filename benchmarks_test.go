@@ -99,12 +99,18 @@ func BenchmarkEcheleonEnqueueConcurrent(b *testing.B) {
 		done <- nil
 	}()
 
+	// Generate transfers
+	b.StopTimer()
+	transfers := make([]*testutil.Transfer, b.N)
+	for i := 0; i < b.N; i++ {
+		transfers[i] = testutil.GenerateRandomTransfer()
+	}
+
 	// Queue
 	fmt.Println("Producing", b.N)
 	b.StartTimer()
 	for i := 0; i < b.N; i++ {
-		transfer := testutil.Transfer{}
-		if err := echelon.Enqueue(transfer); err != nil {
+		if err := echelon.Enqueue(transfers[i]); err != nil {
 			b.Fatal(err)
 		}
 	}
