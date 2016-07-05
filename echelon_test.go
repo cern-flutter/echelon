@@ -31,7 +31,7 @@ type (
 )
 
 const (
-	BasePath = "/tmp/echelon"
+	BasePath = "/tmp/echelon/queue"
 )
 
 func (t *TestProvider) Keys() []string {
@@ -230,6 +230,53 @@ func TestRestore(t *testing.T) {
 		if !reflect.DeepEqual(*c, *p) {
 			t.Fatal("Produced and consumed do not match")
 		}
+	}
+}
+
+func TestFirstEmpty(t *testing.T) {
+	echelon := New(BasePath, &TestProvider{})
+	transfer := &testutil.Transfer{}
+
+	if err := echelon.Dequeue(transfer); err != ErrEmpty {
+		t.Fatal(err)
+	}
+
+	if err := echelon.Enqueue(transfer); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := echelon.Dequeue(transfer); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSecondEmpty(t *testing.T) {
+	echelon := New(BasePath, &TestProvider{})
+	transfer := &testutil.Transfer{}
+
+	if err := echelon.Dequeue(transfer); err != ErrEmpty {
+		t.Fatal(err)
+	}
+
+	if err := echelon.Enqueue(transfer); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := echelon.Dequeue(transfer); err != nil {
+		t.Fatal(err)
+	}
+	if err := echelon.Dequeue(transfer); err != ErrEmpty {
+		t.Fatal(err)
+	}
+
+	if err := echelon.Enqueue(transfer); err != nil {
+		t.Fatal(err)
+	}
+	if err := echelon.Enqueue(transfer); err != nil {
+		t.Fatal(err)
+	}
+	if err := echelon.Dequeue(transfer); err != nil {
+		t.Fatal(err)
 	}
 }
 

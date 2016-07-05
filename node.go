@@ -86,14 +86,15 @@ func (n *node) Push(e *Echelon, route []string, item interface{}) error {
 
 // pushRecursive implements Push
 func (n *node) pushRecursive(e *Echelon, route []string, element interface{}) error {
+	n.mutex.Lock()
+	defer n.mutex.Unlock()
+
 	if route[0] != n.name {
 		panic("Unexpected echelon traversal")
 	}
 
 	// End of the route
 	if len(route) == 1 {
-		n.mutex.Lock()
-		defer n.mutex.Unlock()
 		if n.queue == nil {
 			var err error
 			if n.queue, err = NewQueue(n.dir); err != nil {
@@ -104,23 +105,17 @@ func (n *node) pushRecursive(e *Echelon, route []string, element interface{}) er
 		return nil
 	}
 
-	n.mutex.RLock()
 	child := n.findChild(route[1])
-	n.mutex.RUnlock()
 
 	if child == nil {
-		n.mutex.Lock()
 		child = &node{
 			name:     route[1],
 			children: make([]*node, 0, 16),
 			dir:      appendDir(n.dir, route[1]),
 		}
 		n.children = append(n.children, child)
-		n.mutex.Unlock()
 	}
 
-	n.mutex.RLock()
-	defer n.mutex.RUnlock()
 	return child.pushRecursive(e, route[1:], element)
 }
 
@@ -161,10 +156,8 @@ func (n *node) remove(child *node) {
 }
 
 // Empty returns true if the node has no children or queued elements.
-func (n *node) Empty() (bool, error) {
-	n.mutex.RLock()
-	defer n.mutex.RUnlock()
-
+func (n *node) empty() (bool, error) {
+	// lock should be already acquired by caller
 	if n.queue != nil {
 		return n.queue.Empty()
 	}
@@ -173,8 +166,8 @@ func (n *node) Empty() (bool, error) {
 
 // recalculateRanges updates the relative weights of the childrens.
 func recalculateRanges(weights *[]float32) []float32 {
-	ranges := make([]float32, len(*weights))
 	// lock should be already acquired by caller
+	ranges := make([]float32, len(*weights))
 	total := float32(0.0)
 	for _, w := range *weights {
 		total += w
@@ -190,6 +183,7 @@ func recalculateRanges(weights *[]float32) []float32 {
 
 // pickChild chooses a random node according to their weights.
 func pickChild(children *[]*node, weights *[]float32) (int, *node) {
+	// lock should be already acquired by caller
 	ranges := recalculateRanges(weights)
 	chance := rand.Float32()
 	for index, child := range *children {
@@ -203,7 +197,7 @@ func pickChild(children *[]*node, weights *[]float32) (int, *node) {
 
 // popFromLeafNode extracts an element from the queue
 func (n *node) popLeafNode(element interface{}, e *Echelon, route []string) error {
-	// mutex must be hold by caller
+	// lock should be already acquired by caller
 	slots, err := e.provider.GetAvailableSlots(route)
 	if err != nil {
 		return err
@@ -222,19 +216,15 @@ func (n *node) popLeafNode(element interface{}, e *Echelon, route []string) erro
 // popRecursive pops a queued element if there are enough slots available for all the intermediate
 // steps in the tree.
 func (n *node) popRecursive(element interface{}, e *Echelon, parent []string) error {
-	route := append(parent, n.name)
+	n.mutex.Lock()
+	defer n.mutex.Unlock()
 
-	n.mutex.RLock()
+	route := append(parent, n.name)
 
 	// Leaf node
 	if n.queue != nil {
-		n.mutex.RUnlock()
-		n.mutex.Lock()
-		defer n.mutex.Unlock()
 		return n.popLeafNode(element, e, route)
 	}
-
-	n.mutex.RUnlock()
 
 	// Available slots for the path so far
 	slots, err := e.provider.GetAvailableSlots(route)
@@ -244,8 +234,6 @@ func (n *node) popRecursive(element interface{}, e *Echelon, parent []string) er
 		// Nothing available, so do not even bother recursing
 		return ErrNotEnoughSlots
 	}
-
-	n.mutex.RLock()
 
 	// Intermediate node
 	// We choose a random child based on their weight, and ask recursively
@@ -266,7 +254,6 @@ func (n *node) popRecursive(element interface{}, e *Echelon, parent []string) er
 	for len(possibleChoices) > 0 {
 		index, child := pickChild(&possibleChoices, &weights)
 		if child == nil {
-			n.mutex.RUnlock()
 			panic("Unexpected nil child")
 		}
 
@@ -288,8 +275,6 @@ func (n *node) popRecursive(element interface{}, e *Echelon, parent []string) er
 		}
 	}
 
-	n.mutex.RUnlock()
-
 	// If the error is set, bail out
 	if err != nil {
 		return err
@@ -304,12 +289,10 @@ func (n *node) popRecursive(element interface{}, e *Echelon, parent []string) er
 	}
 
 	// Drop child if now empty
-	if empty, err := selected.Empty(); err != nil {
+	if empty, err := selected.empty(); err != nil {
 		return err
 	} else if empty {
-		n.mutex.Lock()
 		n.remove(selected)
-		n.mutex.Unlock()
 	}
 	return nil
 }

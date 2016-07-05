@@ -108,7 +108,9 @@ func (e *Echelon) Enqueue(items ...interface{}) error {
 		if err != nil {
 			return err
 		}
-		e.root.Push(e, route, item)
+		if err = e.root.Push(e, route, item); err != nil {
+			return err
+		}
 	}
 	return nil
 }

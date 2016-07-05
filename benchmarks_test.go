@@ -17,9 +17,12 @@
 package echelon
 
 import (
+	"fmt"
 	"gitlab.cern.ch/flutter/echelon/testutil"
-	"testing"
 	"os"
+	"syscall"
+	"testing"
+	"time"
 )
 
 func BenchmarkEchelonEnqueue(b *testing.B) {
@@ -65,5 +68,53 @@ func BenchmarkEchelonDequeue(b *testing.B) {
 
 	// Clean
 	b.StopTimer()
+	os.RemoveAll(BasePath)
+}
+
+func BenchmarkEcheleonEnqueueConcurrent(b *testing.B) {
+	if err := os.Mkdir(BasePath, 0755); err != nil && err.(*os.PathError).Err != syscall.EEXIST {
+		b.Fatal(err)
+	}
+	fmt.Println("Starting", b.N)
+
+	echelon := New(BasePath, &TestProvider{})
+	defer echelon.Close()
+
+	// Dequeue
+	done := make(chan error)
+	go func() {
+		transfer := &testutil.Transfer{}
+		for j := 0; j < b.N; {
+			if err := echelon.Dequeue(transfer); err == ErrEmpty {
+				fmt.Println("Empty", j)
+				time.Sleep(10 * time.Millisecond)
+				fmt.Println("Done sleeping")
+			} else if err != nil {
+				done <- err
+				return
+			} else {
+				j++
+			}
+		}
+		done <- nil
+	}()
+
+	// Queue
+	fmt.Println("Producing", b.N)
+	b.StartTimer()
+	for i := 0; i < b.N; i++ {
+		transfer := testutil.Transfer{}
+		if err := echelon.Enqueue(transfer); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	// Clean
+	b.StopTimer()
+	fmt.Println("Done producing", b.N)
+	if err := <-done; err != nil {
+		b.Fatal(err)
+	}
+	fmt.Println("Done waiting")
 	os.RemoveAll(BasePath)
 }
