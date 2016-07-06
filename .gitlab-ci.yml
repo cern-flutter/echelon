@@ -2,9 +2,10 @@ image: golang:1.6
 
 test:
     script:
+        - go vet
         - mkdir -p "$GOPATH/src/gitlab.cern.ch/flutter"
         - ln -sfv "$(pwd -P)" "$GOPATH/src/gitlab.cern.ch/flutter"
         - cd "$GOPATH/src/gitlab.cern.ch/flutter/echelon"
         - go get -t
-        - go test -v -cover
+        - go test -v -cover -race
 
