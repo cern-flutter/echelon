@@ -131,12 +131,10 @@ func TestRacy2(t *testing.T) {
 
 			// Some time before the event to queue arrives
 			time.Sleep(time.Duration(rand.Intn(50)) * time.Millisecond)
-			t.Log("+ Enqueue", i)
 			if err := echelon.Enqueue(transfer); err != nil {
 				t.Fatal(err)
 			}
 			produced[i] = transfer
-			t.Log("- Enqueue", i)
 		}
 		t.Log("Producer done")
 		done <- true
@@ -144,15 +142,12 @@ func TestRacy2(t *testing.T) {
 	consumer := func() {
 		for i := 0; i < N; {
 			transfer := &testutil.Transfer{}
-			t.Log("+ Dequeue")
 			if err := echelon.Dequeue(transfer); err != nil && err != ErrEmpty {
 				t.Fatal(err)
 			} else if err == nil {
 				consumed[transfer.TransferId] = transfer
-				t.Log("- Dequeue", i)
 				i++
 			} else {
-				t.Log("- Dequeue empty")
 				// If we don't sleep, the other goroutine may not wake up
 				// See http://blog.nindalf.com/how-goroutines-work/
 				time.Sleep(10 * time.Millisecond)
