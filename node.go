@@ -91,8 +91,7 @@ func (n *node) pushRecursive(e *Echelon, route []string, element interface{}) er
 				return err
 			}
 		}
-		n.queue.Push(element)
-		return nil
+		return n.queue.Push(element)
 	}
 
 	child := n.findChild(route[1])
