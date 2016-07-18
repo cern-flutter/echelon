@@ -275,6 +275,16 @@ func TestSecondEmpty(t *testing.T) {
 	}
 }
 
+func TestEmpty(t *testing.T) {
+	os.RemoveAll(BasePath)
+	transfer := &testutil.Transfer{}
+
+	echelon := New(BasePath, &TestProvider{})
+	if err := echelon.Dequeue(transfer); err != ErrEmpty {
+		t.Fatal(err)
+	}
+}
+
 // Setup
 func TestMain(m *testing.M) {
 	os.RemoveAll(BasePath)
