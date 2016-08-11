@@ -18,10 +18,12 @@ package echelon
 
 import (
 	"container/list"
+	"github.com/satori/go.uuid"
 	"gitlab.cern.ch/flutter/echelon/testutil"
 	"math/rand"
 	"os"
 	"reflect"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -31,12 +33,8 @@ type (
 )
 
 const (
-	BasePath = "/tmp/echelon/queue"
+	BasePath = "/tmp/echelon.db"
 )
-
-func (t *TestProvider) Keys() []string {
-	return []string{"DestSe", "Vo", "Activity", "SourceSe"}
-}
 
 func (t *TestProvider) GetWeight(route []string) float32 {
 	switch len(route) {
@@ -62,8 +60,12 @@ func (t *TestProvider) ConsumeSlot(path []string) error {
 func TestSimple(t *testing.T) {
 	N := 10
 
-	echelon := New(BasePath, &TestProvider{})
+	echelon, err := New(BasePath, &TestProvider{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer echelon.Close()
+
 	for i := 0; i < N; i++ {
 		transfer := testutil.GenerateRandomTransfer()
 		if err := echelon.Enqueue(transfer); err != nil {
@@ -90,7 +92,10 @@ func TestSimple(t *testing.T) {
 
 func TestRacy1(t *testing.T) {
 	N := 100
-	echelon := New(BasePath, &TestProvider{})
+	echelon, err := New(BasePath, &TestProvider{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer echelon.Close()
 
 	done := make(chan bool)
@@ -117,7 +122,10 @@ func TestRacy1(t *testing.T) {
 
 func TestRacy2(t *testing.T) {
 	N := 50
-	echelon := New(BasePath, &TestProvider{})
+	echelon, err := New(BasePath, &TestProvider{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer echelon.Close()
 
 	done := make(chan bool)
@@ -128,7 +136,6 @@ func TestRacy2(t *testing.T) {
 	producer := func() {
 		for i := 0; i < N; i++ {
 			transfer := testutil.GenerateRandomTransfer()
-
 			// Some time before the event to queue arrives
 			time.Sleep(time.Duration(rand.Intn(50)) * time.Millisecond)
 			if err := echelon.Enqueue(transfer); err != nil {
@@ -151,6 +158,7 @@ func TestRacy2(t *testing.T) {
 				// If we don't sleep, the other goroutine may not wake up
 				// See http://blog.nindalf.com/how-goroutines-work/
 				time.Sleep(10 * time.Millisecond)
+				runtime.Gosched()
 			}
 		}
 		t.Log("Consumer done")
@@ -165,7 +173,7 @@ func TestRacy2(t *testing.T) {
 	}
 
 	if len(produced) != len(consumed) {
-		t.Fatal("Expected equal length of produced and consumed", N)
+		t.Fatal("Expected equal length of produced and consumed", N, len(produced), len(consumed))
 	}
 
 	for _, p := range produced {
@@ -181,7 +189,10 @@ func TestRacy2(t *testing.T) {
 
 func TestRestore(t *testing.T) {
 	N := 50
-	e1 := New(BasePath, &TestProvider{})
+	e1, err := New(BasePath, &TestProvider{})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	produced := make([]*testutil.Transfer, N)
 
@@ -200,10 +211,13 @@ func TestRestore(t *testing.T) {
 	e1.Close()
 
 	// Open a new one, must be able to consume what was generated before
-	e2 := New(BasePath, &TestProvider{})
+	e2, err := New(BasePath, &TestProvider{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer e2.Close()
 
-	if err := e2.Restore(); err != nil {
+	if err := e2.Restore(&testutil.Transfer{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -229,8 +243,15 @@ func TestRestore(t *testing.T) {
 }
 
 func TestFirstEmpty(t *testing.T) {
-	echelon := New(BasePath, &TestProvider{})
-	transfer := &testutil.Transfer{}
+	echelon, err := New(BasePath, &TestProvider{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer echelon.Close()
+
+	transfer := &testutil.Transfer{
+		TransferId: uuid.NewV4().String(),
+	}
 
 	if err := echelon.Dequeue(transfer); err != ErrEmpty {
 		t.Fatal(err)
@@ -246,8 +267,14 @@ func TestFirstEmpty(t *testing.T) {
 }
 
 func TestSecondEmpty(t *testing.T) {
-	echelon := New(BasePath, &TestProvider{})
-	transfer := &testutil.Transfer{}
+	echelon, err := New(BasePath, &TestProvider{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer echelon.Close()
+	transfer := &testutil.Transfer{
+		TransferId: uuid.NewV4().String(),
+	}
 
 	if err := echelon.Dequeue(transfer); err != ErrEmpty {
 		t.Fatal(err)
@@ -273,13 +300,19 @@ func TestSecondEmpty(t *testing.T) {
 	if err := echelon.Dequeue(transfer); err != nil {
 		t.Fatal(err)
 	}
+
 }
 
 func TestEmpty(t *testing.T) {
 	os.RemoveAll(BasePath)
 	transfer := &testutil.Transfer{}
 
-	echelon := New(BasePath, &TestProvider{})
+	echelon, err := New(BasePath, &TestProvider{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer echelon.Close()
+
 	if err := echelon.Dequeue(transfer); err != ErrEmpty {
 		t.Fatal(err)
 	}

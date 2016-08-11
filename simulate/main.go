@@ -269,8 +269,8 @@ func main() {
 	generate := flag.Int("generate", 1000, "How many transfers to generate")
 	pick := flag.Int("pick", 100, "How many transfers to pick")
 	dump := flag.String("dump-queue", "", "Dump the remaining queue into this file")
-	dir := flag.String("dir", "/tmp/simulation", "Echelon path")
-	keepDirectory := flag.Bool("keep-dir", false, "Keep the echelon path once the simulation is done")
+	dbPath := flag.String("db", "/tmp/simulation.db", "Echelon DB path")
+	keepDb := flag.Bool("keep", false, "Keep the echelon path once the simulation is done")
 	flag.Parse()
 
 	if flag.NArg() == 0 {
@@ -278,7 +278,10 @@ func main() {
 	}
 	simulation := &SimulationProvider{}
 	simulation.load(flag.Arg(0))
-	queue := echelon.New(*dir, simulation)
+	queue, err := echelon.New(*dbPath, simulation)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Prepare queue
 	simulation.populate(queue, *generate)
@@ -289,8 +292,8 @@ func main() {
 	fmt.Println("Consumed", consumed)
 
 	// Clean up
-	if !*keepDirectory {
-		os.RemoveAll(*dir)
+	if !*keepDb {
+		os.RemoveAll(*dbPath)
 	}
 
 	// We need to convert to a slice of QueueCount so we can sort

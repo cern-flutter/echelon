@@ -18,6 +18,7 @@ package testutil
 
 import (
 	"github.com/satori/go.uuid"
+	"time"
 )
 
 // Mock for testing
@@ -27,6 +28,19 @@ type Transfer struct {
 	SourceSe, DestSe    string
 	Vo                  string
 	Activity            string
+	SubmitTime          time.Time
+}
+
+func (t *Transfer) GetID() string {
+	return t.TransferId
+}
+
+func (t *Transfer) GetPath() []string {
+	return []string{t.DestSe, t.Vo, t.Activity, t.SourceSe}
+}
+
+func (t *Transfer) GetTimestamp() time.Time {
+	return t.SubmitTime
 }
 
 func GenerateRandomTransfer() *Transfer {

@@ -17,56 +17,51 @@
 package echelon
 
 import (
-	"bytes"
-	"encoding/gob"
-	"gitlab.cern.ch/flutter/go-dirq"
+	"time"
 )
 
 type (
-	// Queue provides a simple FIFO implementation
-	Queue struct {
-		dir  string
-		dirq *dirq.Dirq
+	queueItem struct {
+		ID        string
+		Timestamp time.Time
+		Priority  int
 	}
+
+	queue []*queueItem
 )
 
-// NewQueue creates a new queue
-func NewQueue(dir string) (q *Queue, err error) {
-	q = &Queue{dir: dir}
-	q.dirq, err = dirq.New(dir)
-	return
+// NewQueue returns a new empty queue
+func NewQueue() queue {
+	return make(queue, 0, 50)
 }
 
-// Close releases resources used by the queue
-func (q *Queue) Close() {
-	q.dirq.Purge()
-	q.dirq.Close()
+// Len returns the length of the queue
+func (q queue) Len() int {
+	return len(q)
 }
 
-// Push adds a new element to the back of the queue.
-// element must be gob-serializable
-func (q *Queue) Push(element interface{}) error {
-	buffer := &bytes.Buffer{}
-	encoder := gob.NewEncoder(buffer)
-	if err := encoder.Encode(element); err != nil {
-		return err
-	}
-	return q.dirq.Produce(buffer.Bytes())
+// Less returns true if q[i] < q[j]
+func (q queue) Less(i, j int) bool {
+	return q[i].Priority < q[j].Priority || q[i].Timestamp.Sub(q[j].Timestamp) < 0
+}
+
+// Swap swaps the elements i and j
+func (q queue) Swap(i, j int) {
+	q[i], q[j] = q[j], q[i]
+}
+
+// Push adds a new element to the back of the queue
+func (q *queue) Push(x interface{}) {
+	item := x.(*queueItem)
+	*q = append(*q, item)
 }
 
 // Pop removes an element from the front of the queue.
 // It return ErrEmpty if empty
-func (q *Queue) Pop(element interface{}) error {
-	if serialized, err := q.dirq.ConsumeOne(); err != nil {
-		return err
-	} else if serialized != nil {
-		buffer := bytes.NewBuffer(serialized)
-		return gob.NewDecoder(buffer).Decode(element)
-	}
-	return ErrEmpty
-}
-
-// Empty returns true if there are no elements queued
-func (q *Queue) Empty() (bool, error) {
-	return q.dirq.Empty()
+func (q *queue) Pop() interface{} {
+	old := *q
+	n := len(old)
+	item := old[n-1]
+	*q = old[0 : n-1]
+	return item
 }

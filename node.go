@@ -17,12 +17,11 @@
 package echelon
 
 import (
+	"container/heap"
 	"errors"
 	"fmt"
+	log "github.com/Sirupsen/logrus"
 	"math/rand"
-	"net/url"
-	"os"
-	"path"
 	"strings"
 )
 
@@ -31,6 +30,8 @@ var (
 	ErrEmpty = errors.New("Empty queue")
 	// ErrNotEnoughSlots is returned when there are no availability, but there are queued items
 	ErrNotEnoughSlots = errors.New("Not enough slots")
+	// ErrNotFound is returned when the id is not found on the persistence DB
+	ErrNotFound = errors.New("Not found on the DB")
 )
 
 type (
@@ -41,9 +42,7 @@ type (
 		// children nodes, as they were inserted
 		children []*node
 		// queue is a FIFO struct on leaf nodes.
-		queue *Queue
-		// dir is the phisical file path where the underlying queues are stored
-		dir string
+		queue queue
 	}
 )
 
@@ -73,25 +72,25 @@ func (n *node) stringRecursive(level int) string {
 
 // Push adds a new object to the tree. The InfoProvider is used to resolve weights.
 // This method is recursive.
-func (n *node) Push(e *Echelon, route []string, item interface{}) error {
+func (n *node) push(e *Echelon, route []string, item *queueItem) error {
+	route = append([]string{"/"}, route...)
 	return n.pushRecursive(e, route, item)
 }
 
 // pushRecursive implements Push
-func (n *node) pushRecursive(e *Echelon, route []string, element interface{}) error {
+func (n *node) pushRecursive(e *Echelon, route []string, item *queueItem) error {
 	if route[0] != n.name {
-		panic("Unexpected echelon traversal")
+		log.Panicf("Unexpected echelon traversal: %s != %s", route[0], n.name)
 	}
 
 	// End of the route
 	if len(route) == 1 {
 		if n.queue == nil {
-			var err error
-			if n.queue, err = NewQueue(n.dir); err != nil {
-				return err
-			}
+			n.queue = NewQueue()
+			heap.Init(&n.queue)
 		}
-		return n.queue.Push(element)
+		heap.Push(&n.queue, item)
+		return nil
 	}
 
 	child := n.findChild(route[1])
@@ -100,17 +99,11 @@ func (n *node) pushRecursive(e *Echelon, route []string, element interface{}) er
 		child = &node{
 			name:     route[1],
 			children: make([]*node, 0, 16),
-			dir:      appendDir(n.dir, route[1]),
 		}
 		n.children = append(n.children, child)
 	}
 
-	return child.pushRecursive(e, route[1:], element)
-}
-
-// buildFsDir builds the physical  path on disk
-func appendDir(base, name string) string {
-	return path.Join(base, url.QueryEscape(name))
+	return child.pushRecursive(e, route[1:], item)
 }
 
 // FindChild returns the child with the given label.
@@ -130,10 +123,6 @@ func (n *node) remove(child *node) {
 	// lock should be already acquired by caller
 	for index, ptr := range n.children {
 		if ptr == child {
-			if child.queue != nil {
-				child.queue.Close()
-			}
-			os.RemoveAll(child.dir)
 			// Swap last with this one, and shrink
 			// See https://github.com/golang/go/wiki/SliceTricks (delete without preserving order)
 			count := len(n.children)
@@ -145,12 +134,12 @@ func (n *node) remove(child *node) {
 }
 
 // Empty returns true if the node has no children or queued elements.
-func (n *node) empty() (bool, error) {
+func (n *node) empty() bool {
 	// lock should be already acquired by caller
 	if n.queue != nil {
-		return n.queue.Empty()
+		return n.queue.Len() == 0
 	}
-	return len(n.children) == 0, nil
+	return len(n.children) == 0
 }
 
 // recalculateRanges updates the relative weights of the childrens.
@@ -184,41 +173,36 @@ func pickChild(children *[]*node, weights *[]float32) (int, *node) {
 	return -1, nil
 }
 
-// popFromLeafNode extracts an element from the queue
-func (n *node) popLeafNode(element interface{}, e *Echelon, route []string) error {
+// popFromLeafNode returns the next id from the queue
+func (n *node) popLeafNode(e *Echelon, route []string) (*queueItem, error) {
 	// lock should be already acquired by caller
 	slots, err := e.provider.GetAvailableSlots(route)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if slots <= 0 {
-		return ErrNotEnoughSlots
+		return nil, ErrNotEnoughSlots
 	}
 
-	err = n.queue.Pop(element)
-	if err != nil {
-		return err
-	}
-	return e.provider.ConsumeSlot(route)
+	return heap.Pop(&n.queue).(*queueItem), e.provider.ConsumeSlot(route)
 }
 
-// popRecursive pops a queued element if there are enough slots available for all the intermediate
-// steps in the tree.
-func (n *node) popRecursive(element interface{}, e *Echelon, parent []string) error {
+// popRecursive returns the following id
+func (n *node) popRecursive(e *Echelon, parent []string) (*queueItem, error) {
 	route := append(parent, n.name)
 
 	// Leaf node
 	if n.queue != nil {
-		return n.popLeafNode(element, e, route)
+		return n.popLeafNode(e, route)
 	}
 
 	// Available slots for the path so far
 	slots, err := e.provider.GetAvailableSlots(route)
 	if err != nil {
-		return err
+		return nil, err
 	} else if slots <= 0 {
 		// Nothing available, so do not even bother recursing
-		return ErrNotEnoughSlots
+		return nil, ErrNotEnoughSlots
 	}
 
 	// Intermediate node
@@ -226,6 +210,7 @@ func (n *node) popRecursive(element interface{}, e *Echelon, parent []string) er
 	// Since we may be unlucky enough to pick a path without available slots deeper down,
 	// we iterate until we exhaust all possible children
 	var selected *node
+	var item *queueItem
 
 	possibleChoices := make([]*node, len(n.children))
 	copy(possibleChoices, n.children)
@@ -243,7 +228,7 @@ func (n *node) popRecursive(element interface{}, e *Echelon, parent []string) er
 			panic("Unexpected nil child")
 		}
 
-		err = child.popRecursive(element, e, route)
+		item, err = child.popRecursive(e, route)
 
 		if err == ErrNotEnoughSlots {
 			// Drop this one and pick another one again, until we run out of children
@@ -263,28 +248,26 @@ func (n *node) popRecursive(element interface{}, e *Echelon, parent []string) er
 
 	// If the error is set, bail out
 	if err != nil {
-		return err
+		return nil, err
 	} else if selected == nil {
 		// If we haven't got any error, but didn't select anyone, we are empty
-		return ErrEmpty
+		return nil, ErrEmpty
 	}
 
 	// Tell the scoreboard we are using a slot
 	if err = e.provider.ConsumeSlot(route); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Drop child if now empty
-	if empty, err := selected.empty(); err != nil {
-		return err
-	} else if empty {
+	if selected.empty() {
 		n.remove(selected)
 	}
-	return nil
+	return item, nil
 }
 
-// Pop gets a queued element following the tree using the relative weights, if there are enough slots
+// Pop gets the id of the next element following the tree using the relative weights, if there are enough slots
 // available for the path. If there are no available slots, or nothing queued, then it returns nil.
-func (n *node) Pop(element interface{}, e *Echelon) error {
-	return n.popRecursive(element, e, []string{})
+func (n *node) pop(e *Echelon) (*queueItem, error) {
+	return n.popRecursive(e, []string{})
 }
