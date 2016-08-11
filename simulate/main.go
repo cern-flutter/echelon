@@ -269,7 +269,7 @@ func main() {
 	generate := flag.Int("generate", 1000, "How many transfers to generate")
 	pick := flag.Int("pick", 100, "How many transfers to pick")
 	dump := flag.String("dump-queue", "", "Dump the remaining queue into this file")
-	dir := flag.String("dir", "/tmp/simulation", "Echelon path")
+	dir := flag.String("boltdb", "/tmp/simulation.db", "Echelon DB path")
 	keepDirectory := flag.Bool("keep-dir", false, "Keep the echelon path once the simulation is done")
 	flag.Parse()
 
@@ -278,7 +278,10 @@ func main() {
 	}
 	simulation := &SimulationProvider{}
 	simulation.load(flag.Arg(0))
-	queue := echelon.New(*dir, simulation)
+	queue, err := echelon.New(*dir, simulation)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Prepare queue
 	simulation.populate(queue, *generate)

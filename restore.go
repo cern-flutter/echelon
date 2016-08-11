@@ -16,55 +16,29 @@
 
 package echelon
 
+import ()
 import (
-	"net/url"
-	"os"
-	"path"
+	"bytes"
+	"encoding/gob"
+	"github.com/boltdb/bolt"
 )
 
 // Restore rebuilds the tree representation from the data available on disk
-func (e *Echelon) Restore() error {
+func (e *Echelon) Restore(prototype Item) error {
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
-	return e.root.restoreRecursive(e, make([]string, 0))
-}
 
-// restoreRecursive rebuilds recursively the tree
-func (n *node) restoreRecursive(e *Echelon, parent []string) error {
-	route := append(parent, n.name)
-
-	// Leaf node
-	// The +1 is to account for '/'
-	if len(route) == len(e.keys)+1 {
-		var err error
-		n.queue, err = NewQueue(n.dir)
-		return err
-	}
-
-	// Intermediate levels
-	n.children = make([]*node, 0)
-
-	fd, err := os.Open(n.dir)
-	if err != nil {
-		return err
-	}
-	defer fd.Close()
-
-	for entry, err := fd.Readdir(1); err == nil && entry != nil; entry, err = fd.Readdir(1) {
-		name, err := url.QueryUnescape(entry[0].Name())
-		if err != nil {
-			return err
-		}
-		child := &node{
-			name: name,
-			dir:  path.Join(n.dir, entry[0].Name()),
-		}
-		n.children = append(n.children, child)
-		child.restoreRecursive(e, route)
-	}
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return e.db.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte("items"))
+		return bucket.ForEach(func(key, value []byte) error {
+			buffer := bytes.NewBuffer(value)
+			if err := gob.NewDecoder(buffer).Decode(prototype); err != nil {
+				return err
+			}
+			return e.root.push(e, prototype.GetPath(), &queueItem{
+				ID:        prototype.GetID(),
+				Timestamp: prototype.GetTimestamp(),
+			})
+		})
+	})
 }

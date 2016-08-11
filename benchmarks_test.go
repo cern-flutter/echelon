@@ -19,13 +19,16 @@ package echelon
 import (
 	"gitlab.cern.ch/flutter/echelon/testutil"
 	"os"
-	"syscall"
+	"runtime"
 	"testing"
 	"time"
 )
 
 func BenchmarkEchelonEnqueue(b *testing.B) {
-	echelon := New(BasePath, &TestProvider{})
+	echelon, err := New(BasePath, &TestProvider{})
+	if err != nil {
+		b.Fatal(err)
+	}
 	defer echelon.Close()
 
 	for i := 0; i < b.N; i++ {
@@ -43,7 +46,10 @@ func BenchmarkEchelonEnqueue(b *testing.B) {
 func BenchmarkEchelonDequeue(b *testing.B) {
 	b.StopTimer()
 
-	echelon := New(BasePath, &TestProvider{})
+	echelon, err := New(BasePath, &TestProvider{})
+	if err != nil {
+		b.Fatal(err)
+	}
 	defer echelon.Close()
 
 	// Populate
@@ -71,11 +77,10 @@ func BenchmarkEchelonDequeue(b *testing.B) {
 }
 
 func BenchmarkEcheleonEnqueueConcurrent(b *testing.B) {
-	if err := os.Mkdir(BasePath, 0755); err != nil && err.(*os.PathError).Err != syscall.EEXIST {
+	echelon, err := New(BasePath, &TestProvider{})
+	if err != nil {
 		b.Fatal(err)
 	}
-
-	echelon := New(BasePath, &TestProvider{})
 	defer echelon.Close()
 
 	// Dequeue
@@ -84,6 +89,7 @@ func BenchmarkEcheleonEnqueueConcurrent(b *testing.B) {
 		transfer := &testutil.Transfer{}
 		for j := 0; j < b.N; {
 			if err := echelon.Dequeue(transfer); err == ErrEmpty {
+				runtime.Gosched() // Yield
 				time.Sleep(10 * time.Millisecond)
 			} else if err != nil {
 				done <- err
@@ -93,6 +99,7 @@ func BenchmarkEcheleonEnqueueConcurrent(b *testing.B) {
 			}
 		}
 		done <- nil
+		close(done)
 	}()
 
 	// Generate transfers

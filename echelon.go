@@ -17,18 +17,19 @@
 package echelon
 
 import (
+	"bytes"
+	"encoding/gob"
 	"errors"
 	"fmt"
-	"reflect"
+	"github.com/boltdb/bolt"
 	"sync"
+	"time"
 )
 
 type (
 	// InfoProvider is an interface used by Echelon to determine how to build the tree
 	// and how to pick the elements.
 	InfoProvider interface {
-		// Keys must return an slice with the keys to be used to create the tree
-		Keys() []string
 		// GetWeigth is called to determine the weight of the value within the given field
 		// For instance, for field = activity and value = express, weight = 10
 		GetWeight(route []string) float32
@@ -43,14 +44,25 @@ type (
 		ConsumeSlot(route []string) error
 	}
 
+	// Item is an interface that elements to be stored on an Echelon queue must implement.
+	Item interface {
+		// GetID returns an uniquely identifier for this item
+		GetID() string
+		// GetPath returns a slice of strings that determine the queue for the element
+		// (i.e. [SourceSe, DestSe, Vo, Activity])
+		GetPath() []string
+		// GetTimestamp returns a timestamp using for ordering the events
+		GetTimestamp() time.Time
+	}
+
 	// Echelon contains a queue modeled like a tree where each child has a weight.
 	// On the leaves, there will be an actual queue where FIFO is performed.
 	Echelon struct {
-		baseDir  string
 		provider InfoProvider
 		keys     []string
 		root     *node
 		mutex    sync.RWMutex
+		db       *bolt.DB
 	}
 )
 
@@ -62,24 +74,24 @@ var (
 
 // New returns a new Echelon instance. The caller must pass an InfoProvider that will keep,
 // if necessary, scoreboards, resource control, and/or the like.
-func New(base string, provider InfoProvider) *Echelon {
+func New(base string, provider InfoProvider) (*Echelon, error) {
+	db, err := bolt.Open(base, 0660, &bolt.Options{Timeout: 1 * time.Second})
+	if err != nil {
+		return nil, err
+	}
 	return &Echelon{
-		baseDir:  base,
+		db:       db,
 		provider: provider,
-		keys:     provider.Keys(),
 		root: &node{
 			name:     "/",
 			children: make([]*node, 0, 16),
-			dir:      base,
 		},
-	}
+	}, nil
 }
 
 // Close frees resources
 func (e *Echelon) Close() {
-	e.mutex.Lock()
-	defer e.mutex.Unlock()
-	e.root.Close()
+	e.db.Close()
 }
 
 // String is a convenience method to generate a printable representation of the content of an
@@ -90,37 +102,31 @@ func (e *Echelon) String() string {
 	return fmt.Sprintf("Keys: %v\nQueue:\n%v", e.keys, e.root)
 }
 
-// getRouteForItem uses introspection to get the values associated with the required keys
-// If the object doesn't have any of the required fields, it will return ErrInvalidKey)
-func (e *Echelon) getRouteForItem(item interface{}) ([]string, error) {
-	v := reflect.Indirect(reflect.ValueOf(item))
-	values := make([]string, len(e.keys)+1)
-	values[0] = "/"
-	for index, key := range e.keys {
-		field := v.FieldByName(key)
-		if field.Kind() == reflect.Invalid {
-			return nil, ErrInvalidKey
-		}
-		values[index+1] = field.String()
-	}
-	return values, nil
-}
-
 // Enqueue adds a set of objects to the queue. These objects must have fields corresponding to the returned
 // list by InfoProvider.Keys (for instance [SourceSe, DestSe, Vo, Activity])
-func (e *Echelon) Enqueue(items ...interface{}) error {
-	e.mutex.Lock()
-	defer e.mutex.Unlock()
-	for _, item := range items {
-		route, err := e.getRouteForItem(item)
+func (e *Echelon) Enqueue(item Item) error {
+	return e.db.Update(func(tx *bolt.Tx) error {
+		bucket, err := tx.CreateBucketIfNotExists([]byte("items"))
 		if err != nil {
 			return err
 		}
-		if err = e.root.Push(e, route, item); err != nil {
+
+		serialized := &bytes.Buffer{}
+		encoder := gob.NewEncoder(serialized)
+		if err = encoder.Encode(item); err != nil {
 			return err
 		}
-	}
-	return nil
+
+		if err = bucket.Put([]byte(item.GetID()), serialized.Bytes()); err != nil {
+			return err
+		}
+		e.mutex.Lock()
+		defer e.mutex.Unlock()
+		return e.root.push(e, item.GetPath(), &queueItem{
+			ID:        item.GetID(),
+			Timestamp: item.GetTimestamp(),
+		})
+	})
 }
 
 // Dequeue picks a single queued object from the queue tree. InfoProvider will be called to keep track of
@@ -130,6 +136,22 @@ func (e *Echelon) Enqueue(items ...interface{}) error {
 // of this method.
 func (e *Echelon) Dequeue(item interface{}) error {
 	e.mutex.Lock()
-	defer e.mutex.Unlock()
-	return e.root.Pop(item, e)
+	qi, err := e.root.pop(e)
+	e.mutex.Unlock()
+	if err != nil {
+		return err
+	}
+
+	return e.db.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte("items"))
+		value := bucket.Get([]byte(qi.ID))
+		if len(value) == 0 {
+			return ErrNotFound
+		}
+		buffer := bytes.NewBuffer(value)
+		if err := gob.NewDecoder(buffer).Decode(item); err != nil {
+			return err
+		}
+		return bucket.Delete([]byte(qi.ID))
+	})
 }
