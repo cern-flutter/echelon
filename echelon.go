@@ -106,7 +106,7 @@ func (e *Echelon) getRouteForItem(item interface{}) ([]string, error) {
 	return values, nil
 }
 
-// Enqueue adss a set of objects to the queue. These objects must have fields corresponding to the returned
+// Enqueue adds a set of objects to the queue. These objects must have fields corresponding to the returned
 // list by InfoProvider.Keys (for instance [SourceSe, DestSe, Vo, Activity])
 func (e *Echelon) Enqueue(items ...interface{}) error {
 	e.mutex.Lock()
