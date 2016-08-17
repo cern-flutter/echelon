@@ -20,14 +20,15 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	log "github.com/Sirupsen/logrus"
 	"github.com/satori/go.uuid"
 	"gitlab.cern.ch/flutter/echelon"
 	"gitlab.cern.ch/flutter/echelon/testutil"
 	"io/ioutil"
-	"log"
 	"math/rand"
 	"os"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -172,36 +173,36 @@ func (i *SimulationProvider) IsThereAvailableSlots(route []string) (bool, error)
 	default:
 		return false, fmt.Errorf("Unexpected path length: %d", len(route))
 	}
+	log.Debugf("%d available slots for %s", slots, strings.Join(route, " -> "))
 	return slots > 0, nil
 }
 
 // ConsumeSlots reduces by one the number of available slots
 // For the meaning of path, see GetAvailableSlots
 func (i *SimulationProvider) ConsumeSlot(path []string) error {
-	switch len(path) {
+	log.Debug("Consume slot for ", strings.Join(path, "/"))
+
 	// For destination
-	case 2:
-		dest := path[1]
-		i.Config.SlotsAsDestination[dest]--
-		if i.Config.SlotsAsDestination[dest] < 0 {
-			return fmt.Errorf("Tried to consume a slot on an exhausted destination: %s %d",
-				dest, i.Config.SlotsAsDestination[dest])
-		}
+	dest := path[0]
+	log.Debug("Destination: ", dest)
+	i.Config.SlotsAsDestination[dest]--
+	if i.Config.SlotsAsDestination[dest] < 0 {
+		return fmt.Errorf("Tried to consume a slot on an exhausted destination: %s %d",
+			dest, i.Config.SlotsAsDestination[dest])
+	}
 	// For source and link
-	case 5:
-		dest := path[1]
-		source := path[4]
-		link := source + " " + dest
-		i.Config.SlotsAsSource[source]--
-		i.Config.SlotsPerLink[link]--
-		if i.Config.SlotsAsSource[source] < 0 {
-			return fmt.Errorf("Tried to consume a slot on an exhausted source: %s %d",
-				source, i.Config.SlotsAsSource[source])
-		}
-		if i.Config.SlotsPerLink[link] < 0 {
-			return fmt.Errorf("Tried to consume a slot on an exhausted link: %s %d",
-				link, i.Config.SlotsPerLink[link])
-		}
+	source := path[3]
+	link := source + " " + dest
+	log.Debug("Link: ", link)
+	i.Config.SlotsAsSource[source]--
+	i.Config.SlotsPerLink[link]--
+	if i.Config.SlotsAsSource[source] < 0 {
+		return fmt.Errorf("Tried to consume a slot on an exhausted source: %s %d",
+			source, i.Config.SlotsAsSource[source])
+	}
+	if i.Config.SlotsPerLink[link] < 0 {
+		return fmt.Errorf("Tried to consume a slot on an exhausted link: %s %d",
+			link, i.Config.SlotsPerLink[link])
 	}
 	return nil
 }
@@ -273,11 +274,16 @@ func main() {
 	dbPath := flag.String("db", "/tmp/simulation.db", "Echelon DB path (default)")
 	redisAddr := flag.String("redis", "", "Redis address")
 	keepDb := flag.Bool("keep", false, "Keep the echelon path once the simulation is done")
+	debug := flag.Bool("debug", false, "Enable debug output")
 	flag.Parse()
 
 	if flag.NArg() == 0 {
 		log.Fatal("Missing simulation data (i.e. atlas.json)")
 	}
+	if *debug {
+		log.SetLevel(log.DebugLevel)
+	}
+
 	simulation := &SimulationProvider{}
 	simulation.load(flag.Arg(0))
 
@@ -286,10 +292,10 @@ func main() {
 
 	if *redisAddr != "" {
 		db, err = echelon.NewRedis(*redisAddr)
-		fmt.Println("Using Redis")
+		log.Info("Using Redis")
 	} else {
 		db, err = echelon.NewLevelDb(*dbPath)
-		fmt.Println("Using LevelDB")
+		log.Info("Using LevelDB")
 	}
 	if err != nil {
 		log.Fatal(err)
@@ -303,23 +309,23 @@ func main() {
 
 	// Prepare queue
 	simulation.populate(queue, *generate)
-	fmt.Println("Produced", *generate)
+	log.Info("Produced ", *generate)
 
 	// Run simulation
 	consumed, quadCount := simulation.run(queue, *pick)
-	fmt.Println("Consumed", consumed)
+	log.Info("Consumed ", consumed)
 
 	// Clean up
 	if !*keepDb {
 		if *redisAddr != "" {
-			fmt.Println("Cleaning Redis")
+			log.Info("Cleaning Redis")
 			db2, _ := echelon.NewRedis(*redisAddr)
 			_, err := db2.Pool.Get().Do("FLUSHALL")
 			if err != nil {
-				fmt.Println("Failed to clean the DB")
+				log.Error(err)
 			}
 		} else {
-			fmt.Println("Cleaning LevelDB")
+			log.Info("Cleaning LevelDB")
 			os.RemoveAll(*dbPath)
 		}
 	}
