@@ -76,7 +76,7 @@ func (n *node) pushRecursive(e *Echelon, route []string, item *queueItem) error 
 	// End of the route
 	if len(route) == 1 {
 		if n.queue == nil {
-			n.queue = NewQueue()
+			n.queue = newQueue()
 			heap.Init(&n.queue)
 		}
 		heap.Push(&n.queue, item)

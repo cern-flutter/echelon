@@ -25,11 +25,13 @@ import (
 )
 
 type (
+	// RedisDb implements the key-value store interface required by Echelon backed by a Redis server
 	RedisDb struct {
 		Pool   *redis.Pool
 		Prefix string
 	}
 
+	// RedisDbIterator wraps the scanning of the stored elements
 	RedisDbIterator struct {
 		conn      redis.Conn
 		cursor    int
@@ -40,6 +42,9 @@ type (
 	}
 )
 
+// NewRedis returns a RedisDb instance
+// Use prefixes to store the objects with a known prefix that will allow to tell them appart from other
+// objects that could be on the database.
 func NewRedis(address string, prefixes ...string) (*RedisDb, error) {
 	prefix := ""
 	if len(prefixes) > 0 {
@@ -63,10 +68,12 @@ func NewRedis(address string, prefixes ...string) (*RedisDb, error) {
 	}, nil
 }
 
+// Close releases the underlying connection pool
 func (rdb *RedisDb) Close() error {
 	return rdb.Pool.Close()
 }
 
+// Put stores the object serialized under the given key
 func (rdb *RedisDb) Put(key string, object interface{}) error {
 	serialized := &bytes.Buffer{}
 	encoder := gob.NewEncoder(serialized)
@@ -80,6 +87,7 @@ func (rdb *RedisDb) Put(key string, object interface{}) error {
 	return err
 }
 
+// Get gets the object stored under the given key
 func (rdb *RedisDb) Get(key string, object interface{}) error {
 	conn := rdb.Pool.Get()
 	defer conn.Close()
@@ -92,6 +100,7 @@ func (rdb *RedisDb) Get(key string, object interface{}) error {
 	return gob.NewDecoder(buffer).Decode(object)
 }
 
+// Delete deletes the object under the given key
 func (rdb *RedisDb) Delete(key string) error {
 	conn := rdb.Pool.Get()
 	defer conn.Close()
@@ -99,6 +108,7 @@ func (rdb *RedisDb) Delete(key string) error {
 	return err
 }
 
+// NewIterator returns a new iterator
 func (rdb *RedisDb) NewIterator() StorageIterator {
 	return &RedisDbIterator{
 		conn:   rdb.Pool.Get(),
@@ -107,6 +117,7 @@ func (rdb *RedisDb) NewIterator() StorageIterator {
 	}
 }
 
+// Next reads the following item
 func (iter *RedisDbIterator) Next() bool {
 	if len(iter.items) > 0 {
 		iter.items = iter.items[1:]
@@ -129,10 +140,12 @@ func (iter *RedisDbIterator) Next() bool {
 
 }
 
+// Key returns the current item key
 func (iter *RedisDbIterator) Key() string {
 	return iter.items[0]
 }
 
+// Object returns the current object
 func (iter *RedisDbIterator) Object(object interface{}) error {
 	value, err := redis.Bytes(iter.conn.Do("GET", iter.Key()))
 	if err != nil {
@@ -142,6 +155,7 @@ func (iter *RedisDbIterator) Object(object interface{}) error {
 	return gob.NewDecoder(buffer).Decode(object)
 }
 
+// Close releases the redis connection
 func (iter *RedisDbIterator) Close() {
 	iter.conn.Close()
 }

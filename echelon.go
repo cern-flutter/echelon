@@ -33,11 +33,15 @@ var (
 )
 
 type (
-	// Iterator is used by the storage interface to iterate stored values.
+	// StorageIterator is used by the storage interface to iterate stored values.
 	StorageIterator interface {
+		// Next gets the next value, returns false when there are no more entries
 		Next() bool
+		// Key returns the current element key
 		Key() string
+		// Object returns the current object
 		Object(object interface{}) error
+		// Close releases the iterator
 		Close()
 	}
 

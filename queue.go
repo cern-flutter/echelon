@@ -30,8 +30,8 @@ type (
 	queue []*queueItem
 )
 
-// NewQueue returns a new empty queue
-func NewQueue() queue {
+// newQueue returns a new empty queue
+func newQueue() queue {
 	return make(queue, 0, 50)
 }
 

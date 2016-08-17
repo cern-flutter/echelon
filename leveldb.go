@@ -24,16 +24,20 @@ import (
 )
 
 type (
+	// LevelDb implements the key-value store interface required by Echelon backed by a local
+	// leveldb database
 	LevelDb struct {
 		db *leveldb.DB
 	}
 
+	// LevelDbIterator wraps a leveldb iterator
 	LevelDbIterator struct {
 		iter iterator.Iterator
 	}
 )
 
-func NewLevelDb(path string) (Storage, error) {
+// NewLevelDb returns a LevelDb instance
+func NewLevelDb(path string) (*LevelDb, error) {
 	db, err := leveldb.OpenFile(path, nil)
 	if err != nil {
 		return nil, err
@@ -43,10 +47,12 @@ func NewLevelDb(path string) (Storage, error) {
 	}, nil
 }
 
+// Close releases the underlying leveldb database
 func (ldb *LevelDb) Close() error {
 	return ldb.db.Close()
 }
 
+// Put stores the object serialized under the given key
 func (ldb *LevelDb) Put(key string, object interface{}) error {
 	serialized := &bytes.Buffer{}
 	encoder := gob.NewEncoder(serialized)
@@ -56,6 +62,7 @@ func (ldb *LevelDb) Put(key string, object interface{}) error {
 	return ldb.db.Put([]byte(key), serialized.Bytes(), nil)
 }
 
+// Get gets the object stored under the given key
 func (ldb *LevelDb) Get(key string, object interface{}) error {
 	value, err := ldb.db.Get([]byte(key), nil)
 	if err != nil {
@@ -65,27 +72,33 @@ func (ldb *LevelDb) Get(key string, object interface{}) error {
 	return gob.NewDecoder(buffer).Decode(object)
 }
 
+// Delete deletes the object under the given key
 func (ldb *LevelDb) Delete(key string) error {
 	return ldb.db.Delete([]byte(key), nil)
 }
 
+// NewIterator returns a new iterator
 func (ldb *LevelDb) NewIterator() StorageIterator {
 	return &LevelDbIterator{ldb.db.NewIterator(nil, nil)}
 }
 
+// Next reads the following item
 func (iter *LevelDbIterator) Next() bool {
 	return iter.iter.Next()
 }
 
+// Key returns the current item key
 func (iter *LevelDbIterator) Key() string {
 	return string(iter.iter.Key())
 }
 
+// Object returns the current object
 func (iter *LevelDbIterator) Object(object interface{}) error {
 	value := iter.iter.Value()
 	buffer := bytes.NewBuffer(value)
 	return gob.NewDecoder(buffer).Decode(object)
 }
 
+// Close does nothing for LevelDB
 func (iter *LevelDbIterator) Close() {
 }
