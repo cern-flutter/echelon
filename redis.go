@@ -26,7 +26,8 @@ import (
 
 type (
 	RedisDb struct {
-		Pool *redis.Pool
+		Pool   *redis.Pool
+		Prefix string
 	}
 
 	RedisDbIterator struct {
@@ -35,11 +36,17 @@ type (
 		items     []string
 		retrieved int
 		done      bool
+		prefix    string
 	}
 )
 
-func NewRedis(address string) (*RedisDb, error) {
+func NewRedis(address string, prefixes ...string) (*RedisDb, error) {
+	prefix := ""
+	if len(prefixes) > 0 {
+		prefix = prefixes[0]
+	}
 	return &RedisDb{
+		Prefix: prefix,
 		Pool: &redis.Pool{
 			Dial: func() (redis.Conn, error) {
 				return redis.Dial("tcp", address)
@@ -60,14 +67,6 @@ func (rdb *RedisDb) Close() error {
 	return rdb.Pool.Close()
 }
 
-// Clear removes all keys on the DB! Careful with it
-func (rdb *RedisDb) Clear() error {
-	conn := rdb.Pool.Get()
-	defer conn.Close()
-	_, err := conn.Do("FLUSHALL")
-	return err
-}
-
 func (rdb *RedisDb) Put(key string, object interface{}) error {
 	serialized := &bytes.Buffer{}
 	encoder := gob.NewEncoder(serialized)
@@ -77,7 +76,7 @@ func (rdb *RedisDb) Put(key string, object interface{}) error {
 
 	conn := rdb.Pool.Get()
 	defer conn.Close()
-	_, err := conn.Do("SET", key, serialized.String())
+	_, err := conn.Do("SET", rdb.Prefix+key, serialized.String())
 	return err
 }
 
@@ -85,7 +84,7 @@ func (rdb *RedisDb) Get(key string, object interface{}) error {
 	conn := rdb.Pool.Get()
 	defer conn.Close()
 
-	value, err := redis.Bytes(conn.Do("GET", key))
+	value, err := redis.Bytes(conn.Do("GET", rdb.Prefix+key))
 	if err != nil {
 		return err
 	}
@@ -96,7 +95,7 @@ func (rdb *RedisDb) Get(key string, object interface{}) error {
 func (rdb *RedisDb) Delete(key string) error {
 	conn := rdb.Pool.Get()
 	defer conn.Close()
-	_, err := conn.Do("DEL", key)
+	_, err := conn.Do("DEL", rdb.Prefix+key)
 	return err
 }
 
@@ -104,6 +103,7 @@ func (rdb *RedisDb) NewIterator() StorageIterator {
 	return &RedisDbIterator{
 		conn:   rdb.Pool.Get(),
 		cursor: 0,
+		prefix: rdb.Prefix,
 	}
 }
 
@@ -112,7 +112,7 @@ func (iter *RedisDbIterator) Next() bool {
 		iter.items = iter.items[1:]
 	}
 	if len(iter.items) == 0 && !iter.done {
-		values, err := redis.Values(iter.conn.Do("SCAN", iter.cursor))
+		values, err := redis.Values(iter.conn.Do("SCAN", iter.cursor, "MATCH", iter.prefix+"*"))
 		if err != nil {
 			log.Error(err)
 			return false

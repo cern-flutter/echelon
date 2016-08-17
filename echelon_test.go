@@ -56,7 +56,7 @@ func newEchelon() *Echelon {
 
 	switch backend {
 	case "redis":
-		db, err = NewRedis(redisConnAddress)
+		db, err = NewRedis(redisConnAddress, "test-")
 	case "leveldb":
 		db, err = NewLevelDb(levelDbPath)
 	default:
@@ -79,7 +79,7 @@ func clearEchelon() {
 	switch backend {
 	case "redis":
 		db, _ := NewRedis(redisConnAddress)
-		db.Clear()
+		db.Pool.Get().Do("FLUSHALL")
 	case "leveldb":
 		os.RemoveAll(levelDbPath)
 	default:
