@@ -38,6 +38,7 @@ type (
 		Next() bool
 		Key() string
 		Object(object interface{}) error
+		Close()
 	}
 
 	// Storage is an interface that different persistence backends must implement

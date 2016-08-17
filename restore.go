@@ -22,6 +22,7 @@ func (e *Echelon) Restore() error {
 	defer e.mutex.Unlock()
 
 	iter := e.db.NewIterator()
+	defer iter.Close()
 	for iter.Next() {
 		if err := iter.Object(e.prototype); err != nil {
 			return err

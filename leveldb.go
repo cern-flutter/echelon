@@ -24,7 +24,7 @@ import (
 )
 
 type (
-	LevelDbImpl struct {
+	LevelDb struct {
 		db *leveldb.DB
 	}
 
@@ -38,16 +38,16 @@ func NewLevelDb(path string) (Storage, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &LevelDbImpl{
+	return &LevelDb{
 		db: db,
 	}, nil
 }
 
-func (ldb *LevelDbImpl) Close() error {
+func (ldb *LevelDb) Close() error {
 	return ldb.db.Close()
 }
 
-func (ldb *LevelDbImpl) Put(key string, object interface{}) error {
+func (ldb *LevelDb) Put(key string, object interface{}) error {
 	serialized := &bytes.Buffer{}
 	encoder := gob.NewEncoder(serialized)
 	if err := encoder.Encode(object); err != nil {
@@ -56,7 +56,7 @@ func (ldb *LevelDbImpl) Put(key string, object interface{}) error {
 	return ldb.db.Put([]byte(key), serialized.Bytes(), nil)
 }
 
-func (ldb *LevelDbImpl) Get(key string, object interface{}) error {
+func (ldb *LevelDb) Get(key string, object interface{}) error {
 	value, err := ldb.db.Get([]byte(key), nil)
 	if err != nil {
 		return err
@@ -65,11 +65,11 @@ func (ldb *LevelDbImpl) Get(key string, object interface{}) error {
 	return gob.NewDecoder(buffer).Decode(object)
 }
 
-func (ldb *LevelDbImpl) Delete(key string) error {
+func (ldb *LevelDb) Delete(key string) error {
 	return ldb.db.Delete([]byte(key), nil)
 }
 
-func (ldb *LevelDbImpl) NewIterator() StorageIterator {
+func (ldb *LevelDb) NewIterator() StorageIterator {
 	return &LevelDbIterator{ldb.db.NewIterator(nil, nil)}
 }
 
@@ -85,4 +85,7 @@ func (iter *LevelDbIterator) Object(object interface{}) error {
 	value := iter.iter.Value()
 	buffer := bytes.NewBuffer(value)
 	return gob.NewDecoder(buffer).Decode(object)
+}
+
+func (iter *LevelDbIterator) Close() {
 }

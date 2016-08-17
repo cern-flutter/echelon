@@ -21,11 +21,12 @@ import (
 	"encoding/gob"
 	log "github.com/Sirupsen/logrus"
 	"github.com/garyburd/redigo/redis"
+	"time"
 )
 
 type (
-	RedisDbImpl struct {
-		conn redis.Conn
+	RedisDb struct {
+		Pool *redis.Pool
 	}
 
 	RedisDbIterator struct {
@@ -37,39 +38,54 @@ type (
 	}
 )
 
-func NewRedis(address string) (*RedisDbImpl, error) {
-	conn, err := redis.Dial("tcp", address)
-	if err != nil {
-		return nil, err
-	}
-	return &RedisDbImpl{
-		conn: conn,
+func NewRedis(address string) (*RedisDb, error) {
+	return &RedisDb{
+		Pool: &redis.Pool{
+			Dial: func() (redis.Conn, error) {
+				return redis.Dial("tcp", address)
+			},
+			TestOnBorrow: func(c redis.Conn, t time.Time) error {
+				_, err := c.Do("PING")
+				return err
+			},
+			MaxIdle:     1,
+			MaxActive:   1,
+			IdleTimeout: 60 * time.Second,
+			Wait:        false,
+		},
 	}, nil
 }
 
-func (rdb *RedisDbImpl) Close() error {
-	return rdb.conn.Close()
+func (rdb *RedisDb) Close() error {
+	return rdb.Pool.Close()
 }
 
 // Clear removes all keys on the DB! Careful with it
-func (rdb *RedisDbImpl) Clear() error {
-	_, err := rdb.conn.Do("FLUSHALL")
+func (rdb *RedisDb) Clear() error {
+	conn := rdb.Pool.Get()
+	defer conn.Close()
+	_, err := conn.Do("FLUSHALL")
 	return err
 }
 
-func (rdb *RedisDbImpl) Put(key string, object interface{}) error {
+func (rdb *RedisDb) Put(key string, object interface{}) error {
 	serialized := &bytes.Buffer{}
 	encoder := gob.NewEncoder(serialized)
 	if err := encoder.Encode(object); err != nil {
 		return err
 	}
 
-	_, err := rdb.conn.Do("SET", key, serialized.String())
+	conn := rdb.Pool.Get()
+	defer conn.Close()
+	_, err := conn.Do("SET", key, serialized.String())
 	return err
 }
 
-func (rdb *RedisDbImpl) Get(key string, object interface{}) error {
-	value, err := redis.Bytes(rdb.conn.Do("GET", key))
+func (rdb *RedisDb) Get(key string, object interface{}) error {
+	conn := rdb.Pool.Get()
+	defer conn.Close()
+
+	value, err := redis.Bytes(conn.Do("GET", key))
 	if err != nil {
 		return err
 	}
@@ -77,14 +93,16 @@ func (rdb *RedisDbImpl) Get(key string, object interface{}) error {
 	return gob.NewDecoder(buffer).Decode(object)
 }
 
-func (rdb *RedisDbImpl) Delete(key string) error {
-	_, err := rdb.conn.Do("DEL", key)
+func (rdb *RedisDb) Delete(key string) error {
+	conn := rdb.Pool.Get()
+	defer conn.Close()
+	_, err := conn.Do("DEL", key)
 	return err
 }
 
-func (rdb *RedisDbImpl) NewIterator() StorageIterator {
+func (rdb *RedisDb) NewIterator() StorageIterator {
 	return &RedisDbIterator{
-		conn:   rdb.conn,
+		conn:   rdb.Pool.Get(),
 		cursor: 0,
 	}
 }
@@ -122,4 +140,8 @@ func (iter *RedisDbIterator) Object(object interface{}) error {
 	}
 	buffer := bytes.NewBuffer(value)
 	return gob.NewDecoder(buffer).Decode(object)
+}
+
+func (iter *RedisDbIterator) Close() {
+	iter.conn.Close()
 }
