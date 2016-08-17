@@ -18,20 +18,10 @@ package echelon
 
 import (
 	"container/heap"
-	"errors"
 	"fmt"
 	log "github.com/Sirupsen/logrus"
 	"math/rand"
 	"strings"
-)
-
-var (
-	// ErrEmpty is returned when the queue has no entries
-	ErrEmpty = errors.New("Empty queue")
-	// ErrNotEnoughSlots is returned when there are no availability, but there are queued items
-	ErrNotEnoughSlots = errors.New("Not enough slots")
-	// ErrNotFound is returned when the id is not found on the persistence DB
-	ErrNotFound = errors.New("Not found on the DB")
 )
 
 type (
@@ -176,15 +166,15 @@ func pickChild(children *[]*node, weights *[]float32) (int, *node) {
 // popFromLeafNode returns the next id from the queue
 func (n *node) popLeafNode(e *Echelon, route []string) (*queueItem, error) {
 	// lock should be already acquired by caller
-	slots, err := e.provider.GetAvailableSlots(route)
+	available, err := e.provider.IsThereAvailableSlots(route)
 	if err != nil {
 		return nil, err
 	}
-	if slots <= 0 {
+	if !available {
 		return nil, ErrNotEnoughSlots
 	}
 
-	return heap.Pop(&n.queue).(*queueItem), e.provider.ConsumeSlot(route)
+	return heap.Pop(&n.queue).(*queueItem), nil
 }
 
 // popRecursive returns the following id
@@ -197,10 +187,10 @@ func (n *node) popRecursive(e *Echelon, parent []string) (*queueItem, error) {
 	}
 
 	// Available slots for the path so far
-	slots, err := e.provider.GetAvailableSlots(route)
+	available, err := e.provider.IsThereAvailableSlots(route)
 	if err != nil {
 		return nil, err
-	} else if slots <= 0 {
+	} else if !available {
 		// Nothing available, so do not even bother recursing
 		return nil, ErrNotEnoughSlots
 	}
@@ -252,11 +242,6 @@ func (n *node) popRecursive(e *Echelon, parent []string) (*queueItem, error) {
 	} else if selected == nil {
 		// If we haven't got any error, but didn't select anyone, we are empty
 		return nil, ErrEmpty
-	}
-
-	// Tell the scoreboard we are using a slot
-	if err = e.provider.ConsumeSlot(route); err != nil {
-		return nil, err
 	}
 
 	// Drop child if now empty

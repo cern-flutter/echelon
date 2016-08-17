@@ -120,13 +120,13 @@ func (i *SimulationProvider) GetWeight(route []string) float32 {
 	return 1.0
 }
 
-// GetAvailableSlots returns how many slots for the given path there are
+// IsThereAvailableSlot returns how many slots for the given path there are
 // It doesn't limit the overall system (root)
 // It limits the second level based on the "Destination" slots
 // It doesn't limit by Vo
 // It doesn't limit per Activity
 // It limits the fifth level based on "Source" *and* "Link" slots
-func (i *SimulationProvider) GetAvailableSlots(route []string) (int, error) {
+func (i *SimulationProvider) IsThereAvailableSlots(route []string) (bool, error) {
 	slots := 0
 	switch len(route) {
 	// Our side (root)
@@ -170,9 +170,9 @@ func (i *SimulationProvider) GetAvailableSlots(route []string) (int, error) {
 			slots = limitLink
 		}
 	default:
-		return 0, fmt.Errorf("Unexpected path length: %d", len(route))
+		return false, fmt.Errorf("Unexpected path length: %d", len(route))
 	}
-	return slots, nil
+	return slots > 0, nil
 }
 
 // ConsumeSlots reduces by one the number of available slots
@@ -248,6 +248,7 @@ func (s *SimulationProvider) run(queue *echelon.Echelon, n int) (int, map[QueueI
 			transfer.SourceSe, transfer.DestSe,
 			transfer.Vo, transfer.Activity,
 		}]++
+		s.ConsumeSlot(transfer.GetPath())
 	}
 
 	return i, consumed
@@ -278,7 +279,13 @@ func main() {
 	}
 	simulation := &SimulationProvider{}
 	simulation.load(flag.Arg(0))
-	queue, err := echelon.New(*dbPath, simulation)
+
+	db, err := echelon.NewLevelDb(*dbPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	queue, err := echelon.New(&testutil.Transfer{}, db, simulation)
 	if err != nil {
 		log.Fatal(err)
 	}

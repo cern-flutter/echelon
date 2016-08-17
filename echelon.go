@@ -17,30 +17,57 @@
 package echelon
 
 import (
-	"bytes"
-	"encoding/gob"
+	"errors"
 	"fmt"
-	"github.com/syndtr/goleveldb/leveldb"
 	"sync"
 	"time"
 )
 
+var (
+	// ErrEmpty is returned when the queue has no entries
+	ErrEmpty = errors.New("Empty queue")
+	// ErrNotEnoughSlots is returned when there are no availability, but there are queued items
+	ErrNotEnoughSlots = errors.New("Not enough slots")
+	// ErrNotFound is returned when the id is not found on the persistence DB
+	ErrNotFound = errors.New("Not found on the DB")
+)
+
 type (
-	// InfoProvider is an interface used by Echelon to determine how to build the tree
-	// and how to pick the elements.
+	// Iterator is used by the storage interface to iterate stored values.
+	StorageIterator interface {
+		Next() bool
+		Key() string
+		Object(object interface{}) error
+	}
+
+	// Storage is an interface that different persistence backends must implement
+	// to be used by Echelon.
+	// Echelon only requires an iterable key-value store.
+	Storage interface {
+		// Close closes the storage interface
+		// It will  be called when Echelon is closed too
+		Close() error
+		// Put stores an object
+		Put(key string, object interface{}) error
+		// Get gets the object with the given key
+		// If the object does not exist, return ErrNotFound
+		Get(key string, object interface{}) error
+		// Delete removes an object from the storage
+		Delete(key string) error
+		// NewIterator returns an iterator for the storage
+		NewIterator() StorageIterator
+	}
+
+	// InfoProvider is an interface used by Echelon to determine how to pick the elements.
 	InfoProvider interface {
 		// GetWeigth is called to determine the weight of the value within the given field
 		// For instance, for field = activity and value = express, weight = 10
 		GetWeight(route []string) float32
-		// GetAvailableSlots must return how many slots there are available for the given path
+		// IsThereAvailableSlots must return true if there are slots for the given path
 		// (i.e. [/, destination], or [/, destination, vo, activity, source])
 		// It is up to the provider do decide on how to calculate these (using all, part,
 		// always a big enough number...)
-		GetAvailableSlots(route []string) (int, error)
-		// ConsumeSlot is called by Echelon to mark an available slot has been used.
-		// It is up to the InfoProvider to account for this.
-		// Echelon will *never* increase the available slots, since it doesn't know how.
-		ConsumeSlot(route []string) error
+		IsThereAvailableSlots(route []string) (bool, error)
 	}
 
 	// Item is an interface that elements to be stored on an Echelon queue must implement.
@@ -57,24 +84,22 @@ type (
 	// Echelon contains a queue modeled like a tree where each child has a weight.
 	// On the leaves, there will be an actual queue where FIFO is performed.
 	Echelon struct {
-		provider InfoProvider
-		keys     []string
-		root     *node
-		mutex    sync.RWMutex
-		db       *leveldb.DB
+		provider  InfoProvider
+		keys      []string
+		root      *node
+		mutex     sync.RWMutex
+		db        Storage
+		prototype Item
 	}
 )
 
 // New returns a new Echelon instance. The caller must pass an InfoProvider that will keep,
 // if necessary, scoreboards, resource control, and/or the like.
-func New(base string, provider InfoProvider) (*Echelon, error) {
-	db, err := leveldb.OpenFile(base, nil)
-	if err != nil {
-		return nil, err
-	}
+func New(prototype Item, db Storage, provider InfoProvider) (*Echelon, error) {
 	return &Echelon{
-		db:       db,
-		provider: provider,
+		prototype: prototype,
+		db:        db,
+		provider:  provider,
 		root: &node{
 			name:     "/",
 			children: make([]*node, 0, 16),
@@ -83,8 +108,8 @@ func New(base string, provider InfoProvider) (*Echelon, error) {
 }
 
 // Close frees resources
-func (e *Echelon) Close() {
-	e.db.Close()
+func (e *Echelon) Close() error {
+	return e.db.Close()
 }
 
 // String is a convenience method to generate a printable representation of the content of an
@@ -101,12 +126,6 @@ func (e *Echelon) Enqueue(item Item) error {
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
 
-	serialized := &bytes.Buffer{}
-	encoder := gob.NewEncoder(serialized)
-	if err := encoder.Encode(item); err != nil {
-		return err
-	}
-
 	if err := e.root.push(e, item.GetPath(), &queueItem{
 		ID:        item.GetID(),
 		Timestamp: item.GetTimestamp(),
@@ -114,7 +133,7 @@ func (e *Echelon) Enqueue(item Item) error {
 		return err
 	}
 
-	return e.db.Put([]byte(item.GetID()), serialized.Bytes(), nil)
+	return e.db.Put(item.GetID(), item)
 }
 
 // Dequeue picks a single queued object from the queue tree. InfoProvider will be called to keep track of
@@ -130,16 +149,8 @@ func (e *Echelon) Dequeue(item interface{}) error {
 	if err != nil {
 		return err
 	}
-
-	value, err := e.db.Get([]byte(qi.ID), nil)
-	if err != nil {
+	if err := e.db.Get(qi.ID, item); err != nil {
 		return err
 	}
-
-	buffer := bytes.NewBuffer(value)
-	if err := gob.NewDecoder(buffer).Decode(item); err != nil {
-		return err
-	}
-
-	return e.db.Delete([]byte(qi.ID), nil)
+	return e.db.Delete(qi.ID)
 }

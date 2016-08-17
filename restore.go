@@ -16,26 +16,20 @@
 
 package echelon
 
-import (
-	"bytes"
-	"encoding/gob"
-)
-
 // Restore rebuilds the tree representation from the data available on disk
-func (e *Echelon) Restore(prototype Item) error {
+func (e *Echelon) Restore() error {
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
 
-	iter := e.db.NewIterator(nil, nil)
+	iter := e.db.NewIterator()
 	for iter.Next() {
-		buffer := bytes.NewBuffer(iter.Value())
-		if err := gob.NewDecoder(buffer).Decode(prototype); err != nil {
+		if err := iter.Object(e.prototype); err != nil {
 			return err
 		}
 
-		err := e.root.push(e, prototype.GetPath(), &queueItem{
-			ID:        prototype.GetID(),
-			Timestamp: prototype.GetTimestamp(),
+		err := e.root.push(e, e.prototype.GetPath(), &queueItem{
+			ID:        e.prototype.GetID(),
+			Timestamp: e.prototype.GetTimestamp(),
 		})
 		if err != nil {
 			return err

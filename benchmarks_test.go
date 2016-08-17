@@ -25,10 +25,7 @@ import (
 )
 
 func BenchmarkEchelonEnqueue(b *testing.B) {
-	echelon, err := New(BasePath, &TestProvider{})
-	if err != nil {
-		b.Fatal(err)
-	}
+	echelon := newEchelon()
 	defer echelon.Close()
 
 	for i := 0; i < b.N; i++ {
@@ -46,10 +43,7 @@ func BenchmarkEchelonEnqueue(b *testing.B) {
 func BenchmarkEchelonDequeue(b *testing.B) {
 	b.StopTimer()
 
-	echelon, err := New(BasePath, &TestProvider{})
-	if err != nil {
-		b.Fatal(err)
-	}
+	echelon := newEchelon()
 	defer echelon.Close()
 
 	// Populate
@@ -77,10 +71,7 @@ func BenchmarkEchelonDequeue(b *testing.B) {
 }
 
 func BenchmarkEcheleonEnqueueConcurrent(b *testing.B) {
-	echelon, err := New(BasePath, &TestProvider{})
-	if err != nil {
-		b.Fatal(err)
-	}
+	echelon := newEchelon()
 	defer echelon.Close()
 
 	// Dequeue

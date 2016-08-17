@@ -36,6 +36,20 @@ const (
 	BasePath = "/tmp/echelon.db"
 )
 
+func newEchelon() *Echelon {
+	db, err := NewLevelDb(BasePath)
+	if err != nil {
+		panic(err)
+	}
+
+	echelon, err := New(&testutil.Transfer{}, db, &TestProvider{})
+	if err != nil {
+		panic(err)
+	}
+
+	return echelon
+}
+
 func (t *TestProvider) GetWeight(route []string) float32 {
 	switch len(route) {
 	// VO
@@ -49,21 +63,14 @@ func (t *TestProvider) GetWeight(route []string) float32 {
 	}
 }
 
-func (t *TestProvider) GetAvailableSlots(path []string) (int, error) {
-	return 1, nil
-}
-
-func (t *TestProvider) ConsumeSlot(path []string) error {
-	return nil
+func (t *TestProvider) IsThereAvailableSlots(path []string) (bool, error) {
+	return true, nil
 }
 
 func TestSimple(t *testing.T) {
 	N := 10
 
-	echelon, err := New(BasePath, &TestProvider{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	echelon := newEchelon()
 	defer echelon.Close()
 
 	for i := 0; i < N; i++ {
@@ -92,10 +99,7 @@ func TestSimple(t *testing.T) {
 
 func TestRacy1(t *testing.T) {
 	N := 100
-	echelon, err := New(BasePath, &TestProvider{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	echelon := newEchelon()
 	defer echelon.Close()
 
 	done := make(chan bool)
@@ -122,10 +126,7 @@ func TestRacy1(t *testing.T) {
 
 func TestRacy2(t *testing.T) {
 	N := 50
-	echelon, err := New(BasePath, &TestProvider{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	echelon := newEchelon()
 	defer echelon.Close()
 
 	done := make(chan bool)
@@ -189,10 +190,7 @@ func TestRacy2(t *testing.T) {
 
 func TestRestore(t *testing.T) {
 	N := 50
-	e1, err := New(BasePath, &TestProvider{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	e1 := newEchelon()
 
 	produced := make([]*testutil.Transfer, N)
 
@@ -211,13 +209,10 @@ func TestRestore(t *testing.T) {
 	e1.Close()
 
 	// Open a new one, must be able to consume what was generated before
-	e2, err := New(BasePath, &TestProvider{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	e2 := newEchelon()
 	defer e2.Close()
 
-	if err := e2.Restore(&testutil.Transfer{}); err != nil {
+	if err := e2.Restore(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -243,10 +238,7 @@ func TestRestore(t *testing.T) {
 }
 
 func TestFirstEmpty(t *testing.T) {
-	echelon, err := New(BasePath, &TestProvider{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	echelon := newEchelon()
 	defer echelon.Close()
 
 	transfer := &testutil.Transfer{
@@ -267,10 +259,7 @@ func TestFirstEmpty(t *testing.T) {
 }
 
 func TestSecondEmpty(t *testing.T) {
-	echelon, err := New(BasePath, &TestProvider{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	echelon := newEchelon()
 	defer echelon.Close()
 	transfer := &testutil.Transfer{
 		TransferId: uuid.NewV4().String(),
@@ -307,10 +296,7 @@ func TestEmpty(t *testing.T) {
 	os.RemoveAll(BasePath)
 	transfer := &testutil.Transfer{}
 
-	echelon, err := New(BasePath, &TestProvider{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	echelon := newEchelon()
 	defer echelon.Close()
 
 	if err := echelon.Dequeue(transfer); err != ErrEmpty {
