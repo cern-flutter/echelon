@@ -270,7 +270,8 @@ func main() {
 	generate := flag.Int("generate", 1000, "How many transfers to generate")
 	pick := flag.Int("pick", 100, "How many transfers to pick")
 	dump := flag.String("dump-queue", "", "Dump the remaining queue into this file")
-	dbPath := flag.String("db", "/tmp/simulation.db", "Echelon DB path")
+	dbPath := flag.String("db", "/tmp/simulation.db", "Echelon DB path (default)")
+	redisAddr := flag.String("redis", "", "Redis address")
 	keepDb := flag.Bool("keep", false, "Keep the echelon path once the simulation is done")
 	flag.Parse()
 
@@ -280,10 +281,20 @@ func main() {
 	simulation := &SimulationProvider{}
 	simulation.load(flag.Arg(0))
 
-	db, err := echelon.NewLevelDb(*dbPath)
+	var db echelon.Storage
+	var err error
+
+	if *redisAddr != "" {
+		db, err = echelon.NewRedis(*redisAddr)
+		fmt.Println("Using Redis")
+	} else {
+		db, err = echelon.NewLevelDb(*dbPath)
+		fmt.Println("Using LevelDB")
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer db.Close()
 
 	queue, err := echelon.New(&testutil.Transfer{}, db, simulation)
 	if err != nil {
@@ -300,7 +311,17 @@ func main() {
 
 	// Clean up
 	if !*keepDb {
-		os.RemoveAll(*dbPath)
+		if *redisAddr != "" {
+			fmt.Println("Cleaning Redis")
+			db2, _ := echelon.NewRedis(*redisAddr)
+			_, err := db2.Pool.Get().Do("FLUSHALL")
+			if err != nil {
+				fmt.Println("Failed to clean the DB")
+			}
+		} else {
+			fmt.Println("Cleaning LevelDB")
+			os.RemoveAll(*dbPath)
+		}
 	}
 
 	// We need to convert to a slice of QueueCount so we can sort
