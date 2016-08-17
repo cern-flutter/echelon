@@ -21,6 +21,7 @@ import (
 	"encoding/gob"
 	log "github.com/Sirupsen/logrus"
 	"github.com/garyburd/redigo/redis"
+	"strings"
 	"time"
 )
 
@@ -142,12 +143,12 @@ func (iter *RedisDbIterator) Next() bool {
 
 // Key returns the current item key
 func (iter *RedisDbIterator) Key() string {
-	return iter.items[0]
+	return strings.TrimPrefix(iter.items[0], iter.prefix)
 }
 
 // Object returns the current object
 func (iter *RedisDbIterator) Object(object interface{}) error {
-	value, err := redis.Bytes(iter.conn.Do("GET", iter.Key()))
+	value, err := redis.Bytes(iter.conn.Do("GET", iter.items[0]))
 	if err != nil {
 		return err
 	}
