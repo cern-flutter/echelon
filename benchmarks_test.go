@@ -18,7 +18,6 @@ package echelon
 
 import (
 	"gitlab.cern.ch/flutter/echelon/testutil"
-	"os"
 	"runtime"
 	"testing"
 	"time"
@@ -37,7 +36,7 @@ func BenchmarkEchelonEnqueue(b *testing.B) {
 
 	// Clean
 	b.StopTimer()
-	os.RemoveAll(BasePath)
+	clearEchelon()
 }
 
 func BenchmarkEchelonDequeue(b *testing.B) {
@@ -67,7 +66,7 @@ func BenchmarkEchelonDequeue(b *testing.B) {
 
 	// Clean
 	b.StopTimer()
-	os.RemoveAll(BasePath)
+	clearEchelon()
 }
 
 func BenchmarkEcheleonEnqueueConcurrent(b *testing.B) {
@@ -113,5 +112,5 @@ func BenchmarkEcheleonEnqueueConcurrent(b *testing.B) {
 	if err := <-done; err != nil {
 		b.Fatal(err)
 	}
-	os.RemoveAll(BasePath)
+	clearEchelon()
 }

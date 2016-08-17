@@ -18,6 +18,7 @@ package echelon
 
 import (
 	"container/list"
+	"flag"
 	"github.com/satori/go.uuid"
 	"gitlab.cern.ch/flutter/echelon/testutil"
 	"math/rand"
@@ -32,12 +33,36 @@ type (
 	TestProvider struct{}
 )
 
-const (
-	BasePath = "/tmp/echelon.db"
+var (
+	levelDbPath      string
+	redisConnAddress string
+	backend          string
 )
 
+func init() {
+	flag.StringVar(&levelDbPath, "leveldb", "/tmp/echelon.db", "Use LevelDB backend (default)")
+	flag.StringVar(&redisConnAddress, "redis", "", "Use Redis backend")
+	flag.Parse()
+	if redisConnAddress != "" {
+		backend = "redis"
+	} else {
+		backend = "leveldb"
+	}
+}
+
 func newEchelon() *Echelon {
-	db, err := NewLevelDb(BasePath)
+	var db Storage
+	var err error
+
+	switch backend {
+	case "redis":
+		db, err = NewRedis(redisConnAddress)
+	case "leveldb":
+		db, err = NewLevelDb(levelDbPath)
+	default:
+		panic("Invalid backend")
+	}
+
 	if err != nil {
 		panic(err)
 	}
@@ -48,6 +73,18 @@ func newEchelon() *Echelon {
 	}
 
 	return echelon
+}
+
+func clearEchelon() {
+	switch backend {
+	case "redis":
+		db, _ := NewRedis(redisConnAddress)
+		db.Clear()
+	case "leveldb":
+		os.RemoveAll(levelDbPath)
+	default:
+		panic("Invalid backend")
+	}
 }
 
 func (t *TestProvider) GetWeight(route []string) float32 {
@@ -121,7 +158,7 @@ func TestRacy1(t *testing.T) {
 	}
 
 	// Clean up for next tests
-	os.RemoveAll(BasePath)
+	clearEchelon()
 }
 
 func TestRacy2(t *testing.T) {
@@ -293,7 +330,7 @@ func TestSecondEmpty(t *testing.T) {
 }
 
 func TestEmpty(t *testing.T) {
-	os.RemoveAll(BasePath)
+	clearEchelon()
 	transfer := &testutil.Transfer{}
 
 	echelon := newEchelon()
@@ -306,6 +343,5 @@ func TestEmpty(t *testing.T) {
 
 // Setup
 func TestMain(m *testing.M) {
-	os.RemoveAll(BasePath)
 	os.Exit(m.Run())
 }
