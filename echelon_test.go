@@ -88,19 +88,25 @@ func clearEchelon() {
 }
 
 func (t *TestProvider) GetWeight(route []string) float32 {
+	if route[0] == "/" {
+		panic(route[0])
+	}
 	switch len(route) {
 	// VO
-	case 3:
+	case 2:
 		return 0.5
 	// Activity
-	case 4:
+	case 3:
 		return 0.1
 	default:
 		return 1
 	}
 }
 
-func (t *TestProvider) IsThereAvailableSlots(path []string) (bool, error) {
+func (t *TestProvider) IsThereAvailableSlots(route []string) (bool, error) {
+	if len(route) > 0 && route[0] == "/" {
+		panic(route[0])
+	}
 	return true, nil
 }
 

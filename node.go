@@ -166,7 +166,7 @@ func pickChild(children *[]*node, weights *[]float32) (int, *node) {
 // popFromLeafNode returns the next id from the queue
 func (n *node) popLeafNode(e *Echelon, route []string) (*queueItem, error) {
 	// lock should be already acquired by caller
-	available, err := e.provider.IsThereAvailableSlots(route)
+	available, err := e.provider.IsThereAvailableSlots(route[1:])
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +187,7 @@ func (n *node) popRecursive(e *Echelon, parent []string) (*queueItem, error) {
 	}
 
 	// Available slots for the path so far
-	available, err := e.provider.IsThereAvailableSlots(route)
+	available, err := e.provider.IsThereAvailableSlots(route[1:])
 	if err != nil {
 		return nil, err
 	} else if !available {
@@ -206,10 +206,11 @@ func (n *node) popRecursive(e *Echelon, parent []string) (*queueItem, error) {
 	copy(possibleChoices, n.children)
 	weights := make([]float32, len(n.children))
 	childRoute := make([]string, len(route)+1)
+	copy(childRoute, route)
 
 	for index, child := range possibleChoices {
 		childRoute[len(route)] = child.name
-		weights[index] = e.provider.GetWeight(childRoute)
+		weights[index] = e.provider.GetWeight(childRoute[1:])
 	}
 
 	for len(possibleChoices) > 0 {
