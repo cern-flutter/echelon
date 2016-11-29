@@ -110,8 +110,8 @@ func (i *SimulationProvider) Keys() []string {
 // field, value "User"
 func (i *SimulationProvider) GetWeight(route []string) float32 {
 	// Activities do not have equal weights
-	if len(route) == 4 {
-		if value := i.Config.Activities[route[3]]; value != 0 {
+	if len(route) == 3 {
+		if value := i.Config.Activities[route[2]]; value != 0 {
 			return value
 		} else {
 			return i.Config.Activities["default"]
@@ -131,11 +131,11 @@ func (i *SimulationProvider) IsThereAvailableSlots(route []string) (bool, error)
 	slots := 0
 	switch len(route) {
 	// Our side (root)
-	case 1:
+	case 0:
 		slots = 1000
 	// For destination
-	case 2:
-		dest := route[1]
+	case 1:
+		dest := route[0]
 		if value, ok := i.Config.SlotsAsDestination[dest]; ok {
 			slots = value
 		} else {
@@ -143,16 +143,16 @@ func (i *SimulationProvider) IsThereAvailableSlots(route []string) (bool, error)
 			i.Config.SlotsAsDestination[dest] = slots
 		}
 	// For VO, we do not have limitations
-	case 3:
+	case 2:
 		slots = 1000
 	// For activities, we do not have limitations
-	case 4:
+	case 3:
 		slots = 1000
 	// For the full path, we do have a limitation per link and per storage
 	// Pick the lower
-	case 5:
-		dest := route[1]
-		source := route[4]
+	case 4:
+		dest := route[0]
+		source := route[3]
 		link := source + " " + dest
 
 		var limitSource, limitLink int
