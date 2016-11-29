@@ -308,12 +308,16 @@ func main() {
 	}
 
 	// Prepare queue
+	start := time.Now()
 	simulation.populate(queue, *generate)
-	log.Info("Produced ", *generate)
+	end := time.Now()
+	log.Info("Produced ", *generate, " in ", end.Sub(start))
 
 	// Run simulation
+	start = time.Now()
 	consumed, quadCount := simulation.run(queue, *pick)
-	log.Info("Consumed ", consumed)
+	end = time.Now()
+	log.Info("Consumed ", consumed, " in ", end.Sub(start))
 
 	// Clean up
 	if !*keepDb {
