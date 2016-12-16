@@ -272,6 +272,7 @@ func main() {
 	pick := flag.Int("pick", 100, "How many transfers to pick")
 	dump := flag.String("dump-queue", "", "Dump the remaining queue into this file")
 	dbPath := flag.String("db", "/tmp/simulation.db", "Echelon DB path (default)")
+	sqlAddr := flag.String("sql", "", "SQL Address")
 	redisAddr := flag.String("redis", "", "Redis address")
 	keepDb := flag.Bool("keep", false, "Keep the echelon path once the simulation is done")
 	debug := flag.Bool("debug", false, "Enable debug output")
@@ -293,6 +294,9 @@ func main() {
 	if *redisAddr != "" {
 		db, err = echelon.NewRedis(*redisAddr)
 		log.Info("Using Redis")
+	} else if *sqlAddr != "" {
+		db, err = echelon.NewSQL(*sqlAddr)
+		log.Info("Using SQL")
 	} else {
 		db, err = echelon.NewLevelDb(*dbPath)
 		log.Info("Using LevelDB")
@@ -325,6 +329,13 @@ func main() {
 			log.Info("Cleaning Redis")
 			db2, _ := echelon.NewRedis(*redisAddr)
 			_, err := db2.Pool.Get().Do("FLUSHALL")
+			if err != nil {
+				log.Error(err)
+			}
+		} else if *sqlAddr != "" {
+			log.Info("Cleaning SQL")
+			db2, _ := echelon.NewSQL(*sqlAddr)
+			_, err := db2.Db.Exec("DELETE FROM t_file")
 			if err != nil {
 				log.Error(err)
 			}

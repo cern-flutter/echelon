@@ -44,7 +44,7 @@ type (
 )
 
 // NewRedis returns a RedisDb instance
-// Use prefixes to store the objects with a known prefix that will allow to tell them appart from other
+// Use prefixes to store the objects with a known prefix that will allow to tell them apart from other
 // objects that could be on the database.
 func NewRedis(address string, prefixes ...string) (*RedisDb, error) {
 	prefix := ""
