@@ -23,7 +23,6 @@ import (
 	"gitlab.cern.ch/flutter/echelon/testutil"
 	"math/rand"
 	"os"
-	"reflect"
 	"runtime"
 	"testing"
 	"time"
@@ -36,15 +35,19 @@ type (
 var (
 	levelDbPath      string
 	redisConnAddress string
+	sqlAddress       string
 	backend          string
 )
 
 func init() {
 	flag.StringVar(&levelDbPath, "leveldb", "/tmp/echelon.db", "Use LevelDB backend (default)")
 	flag.StringVar(&redisConnAddress, "redis", "", "Use Redis backend")
+	flag.StringVar(&sqlAddress, "sql", "", "Usq SQL backend")
 	flag.Parse()
 	if redisConnAddress != "" {
 		backend = "redis"
+	} else if sqlAddress != "" {
+		backend = "sql"
 	} else {
 		backend = "leveldb"
 	}
@@ -59,6 +62,8 @@ func newEchelon() *Echelon {
 		db, err = NewRedis(redisConnAddress, "test-")
 	case "leveldb":
 		db, err = NewLevelDb(levelDbPath)
+	case "sql":
+		db, err = NewSQL(sqlAddress)
 	default:
 		panic("Invalid backend")
 	}
@@ -82,6 +87,9 @@ func clearEchelon() {
 		db.Pool.Get().Do("FLUSHALL")
 	case "leveldb":
 		os.RemoveAll(levelDbPath)
+	case "sql":
+		db, _ := NewSQL(sqlAddress)
+		db.Db.Exec("DELETE FROM t_file")
 	default:
 		panic("Invalid backend")
 	}
@@ -126,7 +134,7 @@ func TestSimple(t *testing.T) {
 	elements := list.List{}
 	transfer := &testutil.Transfer{}
 	for {
-		if err := echelon.Dequeue(&transfer); err != nil && err != ErrEmpty {
+		if err := echelon.Dequeue(transfer); err != nil && err != ErrEmpty {
 			t.Fatal(err)
 		} else if err == ErrEmpty {
 			break
@@ -225,7 +233,8 @@ func TestRacy2(t *testing.T) {
 		if c == nil {
 			t.Fatal("Missing consumed transfer")
 		}
-		if !reflect.DeepEqual(*c, *p) {
+		if !c.Equal(p) {
+			t.Log(*c, *p)
 			t.Fatal("Produced and consumed do not match")
 		}
 	}
@@ -274,7 +283,8 @@ func TestRestore(t *testing.T) {
 		if c == nil {
 			t.Fatal("Missing consumed transfer")
 		}
-		if !reflect.DeepEqual(*c, *p) {
+		if !c.Equal(p) {
+			t.Log(*c, *p)
 			t.Fatal("Produced and consumed do not match")
 		}
 	}
@@ -304,32 +314,43 @@ func TestFirstEmpty(t *testing.T) {
 func TestSecondEmpty(t *testing.T) {
 	echelon := newEchelon()
 	defer echelon.Close()
-	transfer := &testutil.Transfer{
+
+	if err := echelon.Dequeue(&testutil.Transfer{
 		TransferId: uuid.NewV4().String(),
-	}
-
-	if err := echelon.Dequeue(transfer); err != ErrEmpty {
+	}); err != ErrEmpty {
 		t.Fatal(err)
 	}
 
-	if err := echelon.Enqueue(transfer); err != nil {
+	if err := echelon.Enqueue(&testutil.Transfer{
+		TransferId: uuid.NewV4().String(),
+	}); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := echelon.Dequeue(transfer); err != nil {
+	if err := echelon.Dequeue(&testutil.Transfer{
+		TransferId: uuid.NewV4().String(),
+	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := echelon.Dequeue(transfer); err != ErrEmpty {
+	if err := echelon.Dequeue(&testutil.Transfer{
+		TransferId: uuid.NewV4().String(),
+	}); err != ErrEmpty {
 		t.Fatal(err)
 	}
 
-	if err := echelon.Enqueue(transfer); err != nil {
+	if err := echelon.Enqueue(&testutil.Transfer{
+		TransferId: uuid.NewV4().String(),
+	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := echelon.Enqueue(transfer); err != nil {
+	if err := echelon.Enqueue(&testutil.Transfer{
+		TransferId: uuid.NewV4().String(),
+	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := echelon.Dequeue(transfer); err != nil {
+	if err := echelon.Dequeue(&testutil.Transfer{
+		TransferId: uuid.NewV4().String(),
+	}); err != nil {
 		t.Fatal(err)
 	}
 

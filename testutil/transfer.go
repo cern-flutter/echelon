@@ -58,3 +58,11 @@ func GenerateRandomTransfer() *Transfer {
 		Activity:    RandomChoice(Activities),
 	}
 }
+
+func (t *Transfer) Equal(b *Transfer) bool {
+	return t.TransferId == b.TransferId &&
+		t.Source == b.Source && t.Destination == b.Destination &&
+		t.SourceSe == b.SourceSe && t.DestSe == b.DestSe &&
+		t.Vo == b.Vo && t.Activity == b.Activity &&
+		t.SubmitTime.Equal(b.SubmitTime)
+}
