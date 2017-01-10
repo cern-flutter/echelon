@@ -25,7 +25,7 @@ import (
 type (
 	queue []*QueueEntry
 
-	// Node models nodes inside the queue tree
+	// MemNode models nodes inside the queue tree
 	MemNode struct {
 		// label, or name, of the node. For instance, "express".
 		name string
@@ -35,6 +35,7 @@ type (
 		queue queue
 	}
 
+	// MemNodeStorage represents an Echelon tree node in memory.
 	MemNodeStorage struct {
 	}
 )
@@ -70,10 +71,12 @@ func (q *queue) Pop() interface{} {
 	return item
 }
 
+// Name of this node. Must be unique for the same parent.
 func (n *MemNode) Name() string {
 	return n.name
 }
 
+// NewChild creates a new child with the given name
 func (n *MemNode) NewChild(label string) (Node, error) {
 	child := &MemNode{
 		name:     label,
@@ -83,6 +86,7 @@ func (n *MemNode) NewChild(label string) (Node, error) {
 	return child, nil
 }
 
+// GetChild returns the child with the given name. Return ErrNotFound if it doesn't exist.
 func (n *MemNode) GetChild(label string) (Node, error) {
 	// lock should be already acquired by caller
 	for _, child := range n.children {
@@ -93,6 +97,7 @@ func (n *MemNode) GetChild(label string) (Node, error) {
 	return nil, ErrNotFound
 }
 
+// RemoveChild removes the child with the given name. Return ErrNotFound if it doesn't exist.
 func (n *MemNode) RemoveChild(target Node) error {
 	for index, child := range n.children {
 		if child.name == target.Name() {
@@ -107,6 +112,7 @@ func (n *MemNode) RemoveChild(target Node) error {
 	return ErrNotFound
 }
 
+// ChildNames returns all the children names.
 func (n *MemNode) ChildNames() ([]string, error) {
 	names := make([]string, len(n.children))
 	for index, child := range n.children {
@@ -115,6 +121,7 @@ func (n *MemNode) ChildNames() ([]string, error) {
 	return names, nil
 }
 
+// Empty returns true if the node doesn't have any children, nor a queue with elements.
 func (n *MemNode) Empty() (bool, error) {
 	// lock should be already acquired by caller
 	if n.queue != nil {
@@ -123,15 +130,18 @@ func (n *MemNode) Empty() (bool, error) {
 	return len(n.children) == 0, nil
 }
 
+// HasQueued return true if the node has queued entries.
 func (n *MemNode) HasQueued() (bool, error) {
 	return n.queue != nil && n.queue.Len() > 0, nil
 }
 
+// Push a new entry to a leaf queue/heap.
 func (n *MemNode) Push(entry *QueueEntry) error {
 	heap.Push(&n.queue, entry)
 	return nil
 }
 
+// Pop the first entry on the queue/heap.
 func (n *MemNode) Pop() (*QueueEntry, error) {
 	return heap.Pop(&n.queue).(*QueueEntry), nil
 }
@@ -152,10 +162,12 @@ func (n *MemNode) String() string {
 	return n.stringRecursive(0)
 }
 
+// Close frees underlying resources.
 func (s *MemNodeStorage) Close() error {
 	return nil
 }
 
+// Root returns the Root node of the Echelon tree.
 func (s *MemNodeStorage) Root() Node {
 	return &MemNode{
 		name:     "/",

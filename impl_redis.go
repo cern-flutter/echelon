@@ -43,6 +43,7 @@ type (
 		prefix    string
 	}
 
+	// RedisNode models an Echelon tree node in Redis
 	RedisNode struct {
 		id, parent, name string
 		db               *RedisDb
@@ -171,6 +172,7 @@ func (iter *RedisDbIterator) Close() {
 	iter.conn.Close()
 }
 
+// Root returns the Root node of the Echelon tree
 func (rdb *RedisDb) Root() Node {
 	root := &RedisNode{
 		db:   rdb,
@@ -188,14 +190,17 @@ func (n *RedisNode) queueKey() string {
 	return n.db.Prefix + "-node-" + n.id + "-queue"
 }
 
+// String representation of the Tree starting at this node.
 func (n *RedisNode) String() string {
 	return n.name
 }
 
+// Name of this node. Must be unique for the same parent.
 func (n *RedisNode) Name() string {
 	return n.name
 }
 
+// NewChild creates a new child with the given name
 func (n *RedisNode) NewChild(name string) (Node, error) {
 	newNode := &RedisNode{
 		db:     n.db,
@@ -214,6 +219,7 @@ func (n *RedisNode) NewChild(name string) (Node, error) {
 	return newNode, nil
 }
 
+// GetChild returns the child with the given name. Return ErrNotFound if it doesn't exist
 func (n *RedisNode) GetChild(name string) (Node, error) {
 	conn := n.db.Pool.Get()
 	defer conn.Close()
@@ -233,6 +239,7 @@ func (n *RedisNode) GetChild(name string) (Node, error) {
 	}, nil
 }
 
+// RemoveChild removes the child with the given name. Return ErrNotFound if it doesn't exist.
 func (n *RedisNode) RemoveChild(target Node) error {
 	conn := n.db.Pool.Get()
 	defer conn.Close()
@@ -254,6 +261,7 @@ func (n *RedisNode) RemoveChild(target Node) error {
 	return err
 }
 
+// ChildNames returns all the children names
 func (n *RedisNode) ChildNames() ([]string, error) {
 	conn := n.db.Pool.Get()
 	defer conn.Close()
@@ -261,6 +269,7 @@ func (n *RedisNode) ChildNames() ([]string, error) {
 	return redis.Strings(conn.Do("SMEMBERS", n.childrenSetKey()))
 }
 
+// Empty returns true if the node doesn't have any children, nor a queue with elements.
 func (n *RedisNode) Empty() (bool, error) {
 	conn := n.db.Pool.Get()
 	defer conn.Close()
@@ -277,6 +286,7 @@ func (n *RedisNode) Empty() (bool, error) {
 	return childrenCount == 0 && queuedCount == 0, nil
 }
 
+// HasQueued return true if the node has queued entries.
 func (n *RedisNode) HasQueued() (bool, error) {
 	conn := n.db.Pool.Get()
 	defer conn.Close()
@@ -285,6 +295,7 @@ func (n *RedisNode) HasQueued() (bool, error) {
 	return queuedCount > 0, err
 }
 
+// Push a new entry to a leaf queue/heap.
 func (n *RedisNode) Push(entry *QueueEntry) error {
 	data, err := json.Marshal(entry)
 	if err != nil {
@@ -297,6 +308,7 @@ func (n *RedisNode) Push(entry *QueueEntry) error {
 	return err
 }
 
+// Pop the first entry on the queue/heap.
 func (n *RedisNode) Pop() (*QueueEntry, error) {
 	conn := n.db.Pool.Get()
 	defer conn.Close()

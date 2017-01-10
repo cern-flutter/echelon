@@ -25,12 +25,12 @@ import (
 )
 
 type (
-	// SQL backing for Echelon
+	// SQLDb is a SQL backend for Echelon
 	SQLDb struct {
 		Db *sql.DB
 	}
 
-	// RedisDbIterator wraps the scanning of the stored elements
+	// SQLDbIterator wraps the scanning of the stored elements
 	SQLDbIterator struct {
 		rows     *sql.Rows
 		err      error

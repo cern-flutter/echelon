@@ -110,28 +110,30 @@ type (
 		// Name of this node. Must be unique for the same parent.
 		Name() string
 
-		// Create a new child with the given name
+		// NewChild creates a new child with the given name.
 		NewChild(name string) (Node, error)
-		// Get the child with the given name. Return ErrNotFound if it doesn't exist
+		// GetChild returns the child with the given name. Return ErrNotFound if it doesn't exist
 		GetChild(name string) (Node, error)
-		// Remove the child with the given name. Return ErrNotFound if it doesn't exist.
+		// RemoveChild removes the child with the given name. Return ErrNotFound if it doesn't exist.
 		RemoveChild(target Node) error
-		// Return all the children names
+		// ChildNames returns all the children names.
 		ChildNames() ([]string, error)
 
-		// True if the node doesn't have any children, nor a queue with elements.
+		// Empty returns true if the node doesn't have any children, nor a queue with elements.
 		Empty() (bool, error)
-		// True if the node has queued entries.
+		// HasQueued return true if the node has queued entries.
 		HasQueued() (bool, error)
-		// Add a new entry to a leaf queue/heap.
+		// Push a new entry to a leaf queue/heap.
 		Push(*QueueEntry) error
-		// Get the first entry on the queue/heap.
+		// Pop the first entry on the queue/heap.
 		Pop() (*QueueEntry, error)
 	}
 
 	// NodeStorage is the entry point for the Node model
 	NodeStorage interface {
+		// Close frees underlying resources.
 		Close() error
+		// Root returns the Root node of the Echelon tree.
 		Root() Node
 	}
 
