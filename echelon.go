@@ -88,27 +88,48 @@ type (
 		GetTimestamp() time.Time
 	}
 
+	// QueueEntry is the data that is actually stored on the leaf queue. The Storage interface
+	// is used to later retrieve the full object.
+	// It is done like this so we can store the Echelon tree in memory, but keep the larger objects
+	// on disk until they are needed.
 	QueueEntry struct {
+		// Unique ID for the entry (i.e. an UUID)
 		ID        string
+		// When the entry was added. Used to sort based on submission time.
 		Timestamp time.Time
+		// Priority of this entry. The higher the value, the higher the priority.
+		// Mind that high priority at the queue level go always first. To avoid starvation,
+		// use an Echelon step to model a priority queue.
 		Priority  int
 	}
 
+	// Node is an interface to be implemented by those backends that will store the Echelon tree
 	Node interface {
+		// String representation of the Tree starting at this node.
 		String() string
+		// Name of this node. Must be unique for the same parent.
 		Name() string
 
+		// Create a new child with the given name
 		NewChild(name string) (Node, error)
+		// Get the child with the given name. Return ErrNotFound if it doesn't exist
 		GetChild(name string) (Node, error)
+		// Remove the child with the given name. Return ErrNotFound if it doesn't exist.
 		RemoveChild(target Node) error
+		// Return all the children names
 		ChildNames() ([]string, error)
 
+		// True if the node doesn't have any children, nor a queue with elements.
 		Empty() (bool, error)
+		// True if the node has queued entries.
 		HasQueued() (bool, error)
+		// Add a new entry to a leaf queue/heap.
 		Push(*QueueEntry) error
+		// Get the first entry on the queue/heap.
 		Pop() (*QueueEntry, error)
 	}
 
+	// NodeStorage is the entry point for the Node model
 	NodeStorage interface {
 		Close() error
 		Root() Node
