@@ -306,7 +306,7 @@ func main() {
 	}
 	defer db.Close()
 
-	queue, err := echelon.New(&testutil.Transfer{}, db, simulation)
+	queue, err := echelon.New(&testutil.Transfer{}, db, &echelon.MemNodeStorage{}, simulation)
 	if err != nil {
 		log.Fatal(err)
 	}

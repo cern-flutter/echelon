@@ -72,7 +72,7 @@ func newEchelon() *Echelon {
 		panic(err)
 	}
 
-	echelon, err := New(&testutil.Transfer{}, db, &TestProvider{})
+	echelon, err := New(&testutil.Transfer{}, db, &MemNodeStorage{}, &TestProvider{})
 	if err != nil {
 		panic(err)
 	}
