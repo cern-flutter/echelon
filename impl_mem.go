@@ -74,56 +74,57 @@ func (n *MemNode) Name() string {
 	return n.name
 }
 
-func (n *MemNode) NewChild(label string) Node {
+func (n *MemNode) NewChild(label string) (Node, error) {
 	child := &MemNode{
 		name:     label,
 		children: make([]*MemNode, 0, 16),
 	}
 	n.children = append(n.children, child)
-	return child
+	return child, nil
 }
 
-func (n *MemNode) GetChild(label string) Node {
+func (n *MemNode) GetChild(label string) (Node, error) {
 	// lock should be already acquired by caller
 	for _, child := range n.children {
 		if child.name == label {
-			return child
+			return child, nil
 		}
 	}
-	return nil
+	return nil, ErrNotFound
 }
 
-func (n *MemNode) RemoveChild(name string) {
+func (n *MemNode) RemoveChild(target Node) error {
 	for index, child := range n.children {
-		if child.name == name {
+		if child.name == target.Name() {
 			// Swap last with this one, and shrink
 			// See https://github.com/golang/go/wiki/SliceTricks (delete without preserving order)
 			count := len(n.children)
 			n.children[index] = n.children[count-1]
 			n.children = n.children[:count-1]
-			return
+			return nil
 		}
 	}
+	return ErrNotFound
 }
 
-func (n *MemNode) ChildNames() []string {
+func (n *MemNode) ChildNames() ([]string, error) {
 	names := make([]string, len(n.children))
 	for index, child := range n.children {
 		names[index] = child.name
 	}
-	return names
+	return names, nil
 }
 
-func (n *MemNode) Empty() bool {
+func (n *MemNode) Empty() (bool, error) {
 	// lock should be already acquired by caller
 	if n.queue != nil {
-		return n.queue.Len() == 0
+		return n.queue.Len() == 0, nil
 	}
-	return len(n.children) == 0
+	return len(n.children) == 0, nil
 }
 
-func (n *MemNode) HasQueued() bool {
-	return n.queue != nil && n.queue.Len() > 0
+func (n *MemNode) HasQueued() (bool, error) {
+	return n.queue != nil && n.queue.Len() > 0, nil
 }
 
 func (n *MemNode) Push(entry *QueueEntry) error {

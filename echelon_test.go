@@ -55,15 +55,21 @@ func init() {
 
 func newEchelon() *Echelon {
 	var db Storage
+	var ns NodeStorage
 	var err error
 
 	switch backend {
 	case "redis":
-		db, err = NewRedis(redisConnAddress, "test-")
+		var redisDb *RedisDb
+		redisDb, err = NewRedis(redisConnAddress, "test")
+		ns = redisDb
+		db = redisDb
 	case "leveldb":
 		db, err = NewLevelDb(levelDbPath)
+		ns = &MemNodeStorage{}
 	case "sql":
 		db, err = NewSQL(sqlAddress)
+		ns = &MemNodeStorage{}
 	default:
 		panic("Invalid backend")
 	}
@@ -72,7 +78,7 @@ func newEchelon() *Echelon {
 		panic(err)
 	}
 
-	echelon, err := New(&testutil.Transfer{}, db, &MemNodeStorage{}, &TestProvider{})
+	echelon, err := New(&testutil.Transfer{}, db, ns, &TestProvider{})
 	if err != nil {
 		panic(err)
 	}
@@ -264,8 +270,11 @@ func TestRestore(t *testing.T) {
 	e2 := newEchelon()
 	defer e2.Close()
 
-	if err := e2.Restore(); err != nil {
-		t.Fatal(err)
+	// Redis implements also the tree data structure, so no need to rebuild
+	if backend != "redis" {
+		if err := e2.Restore(); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	consumed := make(map[string]*testutil.Transfer)
@@ -291,27 +300,31 @@ func TestRestore(t *testing.T) {
 }
 
 func TestFirstEmpty(t *testing.T) {
+	clearEchelon()
+
 	echelon := newEchelon()
 	defer echelon.Close()
 
-	transfer := &testutil.Transfer{
-		TransferId: uuid.NewV4().String(),
-	}
+	transfer := &testutil.Transfer{}
 
 	if err := echelon.Dequeue(transfer); err != ErrEmpty {
 		t.Fatal(err)
 	}
 
+	transfer = testutil.GenerateRandomTransfer()
 	if err := echelon.Enqueue(transfer); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := echelon.Dequeue(transfer); err != nil {
+	transfer2 := &testutil.Transfer{}
+	if err := echelon.Dequeue(transfer2); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestSecondEmpty(t *testing.T) {
+	clearEchelon()
+
 	echelon := newEchelon()
 	defer echelon.Close()
 

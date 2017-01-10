@@ -98,13 +98,13 @@ type (
 		String() string
 		Name() string
 
-		NewChild(name string) Node
-		GetChild(name string) Node
-		RemoveChild(name string)
-		ChildNames() []string
+		NewChild(name string) (Node, error)
+		GetChild(name string) (Node, error)
+		RemoveChild(target Node) error
+		ChildNames() ([]string, error)
 
-		Empty() bool
-		HasQueued() bool
+		Empty() (bool, error)
+		HasQueued() (bool, error)
 		Push(*QueueEntry) error
 		Pop() (*QueueEntry, error)
 	}
@@ -163,9 +163,12 @@ func push(this Node, route []string, item *QueueEntry) error {
 	if len(route) == 1 {
 		return this.Push(item)
 	}
-	child := this.GetChild(route[1])
-	if child == nil {
-		child = this.NewChild(route[1])
+	child, err := this.GetChild(route[1])
+	if child == nil && err == ErrNotFound {
+		child, err = this.NewChild(route[1])
+	}
+	if err != nil {
+		return err
 	}
 	return push(child, route[1:], item)
 }
@@ -227,7 +230,10 @@ func pop(this Node, provider InfoProvider, parent []string) (*QueueEntry, error)
 	route := append(parent, this.Name())
 
 	// Leaf node
-	if this.HasQueued() {
+	hasQueued, err := this.HasQueued()
+	if err != nil {
+		return nil, err
+	} else if hasQueued {
 		available, err := provider.IsThereAvailableSlots(route[1:])
 		if err != nil {
 			return nil, err
@@ -251,10 +257,13 @@ func pop(this Node, provider InfoProvider, parent []string) (*QueueEntry, error)
 	// We choose a random child based on their weight, and ask recursively
 	// Since we may be unlucky enough to pick a path without available slots deeper down,
 	// we iterate until we exhaust all possible children
-	var selected Node
+	var selected, child Node
 	var item *QueueEntry
 
-	possibleChoices := this.ChildNames()
+	possibleChoices, err := this.ChildNames()
+	if err != nil {
+		return nil, err
+	}
 	weights := make([]float32, len(possibleChoices))
 	childRoute := make([]string, len(route)+1)
 	copy(childRoute, route)
@@ -266,8 +275,10 @@ func pop(this Node, provider InfoProvider, parent []string) (*QueueEntry, error)
 
 	for len(possibleChoices) > 0 {
 		index, childName := pickChild(&possibleChoices, &weights)
-		child := this.GetChild(childName)
-		if child == nil {
+		child, err = this.GetChild(childName)
+		if err != nil {
+			return nil, err
+		} else if child == nil {
 			panic("Unexpected nil child")
 		}
 
@@ -297,10 +308,13 @@ func pop(this Node, provider InfoProvider, parent []string) (*QueueEntry, error)
 	}
 
 	// Drop child if now empty
-	if selected.Empty() {
-		this.RemoveChild(selected.Name())
+	empty, err := selected.Empty()
+	if err != nil {
+		return nil, err
+	} else if empty {
+		err = this.RemoveChild(selected)
 	}
-	return item, nil
+	return item, err
 }
 
 // Dequeue picks a single queued object from the queue tree. InfoProvider will be called to keep track of
