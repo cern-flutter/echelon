@@ -28,7 +28,7 @@ func (e *Echelon) Restore() error {
 			return err
 		}
 
-		err := e.root.push(e, e.prototype.GetPath(), &queueItem{
+		err := e.root.push(e.prototype.GetPath(), &queueItem{
 			ID:        e.prototype.GetID(),
 			Timestamp: e.prototype.GetTimestamp(),
 		})

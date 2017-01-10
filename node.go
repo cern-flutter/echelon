@@ -62,13 +62,13 @@ func (n *node) stringRecursive(level int) string {
 
 // Push adds a new object to the tree. The InfoProvider is used to resolve weights.
 // This method is recursive.
-func (n *node) push(e *Echelon, route []string, item *queueItem) error {
+func (n *node) push(route []string, item *queueItem) error {
 	route = append([]string{"/"}, route...)
-	return n.pushRecursive(e, route, item)
+	return n.pushRecursive(route, item)
 }
 
 // pushRecursive implements Push
-func (n *node) pushRecursive(e *Echelon, route []string, item *queueItem) error {
+func (n *node) pushRecursive(route []string, item *queueItem) error {
 	if route[0] != n.name {
 		log.Panicf("Unexpected echelon traversal: %s != %s", route[0], n.name)
 	}
@@ -93,7 +93,7 @@ func (n *node) pushRecursive(e *Echelon, route []string, item *queueItem) error 
 		n.children = append(n.children, child)
 	}
 
-	return child.pushRecursive(e, route[1:], item)
+	return child.pushRecursive(route[1:], item)
 }
 
 // FindChild returns the child with the given label.
@@ -164,9 +164,9 @@ func pickChild(children *[]*node, weights *[]float32) (int, *node) {
 }
 
 // popFromLeafNode returns the next id from the queue
-func (n *node) popLeafNode(e *Echelon, route []string) (*queueItem, error) {
+func (n *node) popLeafNode(provider InfoProvider, route []string) (*queueItem, error) {
 	// lock should be already acquired by caller
-	available, err := e.provider.IsThereAvailableSlots(route[1:])
+	available, err := provider.IsThereAvailableSlots(route[1:])
 	if err != nil {
 		return nil, err
 	}
@@ -178,16 +178,16 @@ func (n *node) popLeafNode(e *Echelon, route []string) (*queueItem, error) {
 }
 
 // popRecursive returns the following id
-func (n *node) popRecursive(e *Echelon, parent []string) (*queueItem, error) {
+func (n *node) popRecursive(provider InfoProvider, parent []string) (*queueItem, error) {
 	route := append(parent, n.name)
 
 	// Leaf node
 	if n.queue != nil {
-		return n.popLeafNode(e, route)
+		return n.popLeafNode(provider, route)
 	}
 
 	// Available slots for the path so far
-	available, err := e.provider.IsThereAvailableSlots(route[1:])
+	available, err := provider.IsThereAvailableSlots(route[1:])
 	if err != nil {
 		return nil, err
 	} else if !available {
@@ -210,7 +210,7 @@ func (n *node) popRecursive(e *Echelon, parent []string) (*queueItem, error) {
 
 	for index, child := range possibleChoices {
 		childRoute[len(route)] = child.name
-		weights[index] = e.provider.GetWeight(childRoute[1:])
+		weights[index] = provider.GetWeight(childRoute[1:])
 	}
 
 	for len(possibleChoices) > 0 {
@@ -219,7 +219,7 @@ func (n *node) popRecursive(e *Echelon, parent []string) (*queueItem, error) {
 			panic("Unexpected nil child")
 		}
 
-		item, err = child.popRecursive(e, route)
+		item, err = child.popRecursive(provider, route)
 
 		if err == ErrNotEnoughSlots {
 			// Drop this one and pick another one again, until we run out of children
@@ -254,6 +254,6 @@ func (n *node) popRecursive(e *Echelon, parent []string) (*queueItem, error) {
 
 // Pop gets the id of the next element following the tree using the relative weights, if there are enough slots
 // available for the path. If there are no available slots, or nothing queued, then it returns nil.
-func (n *node) pop(e *Echelon) (*queueItem, error) {
-	return n.popRecursive(e, []string{})
+func (n *node) pop(provider InfoProvider) (*queueItem, error) {
+	return n.popRecursive(provider, []string{})
 }

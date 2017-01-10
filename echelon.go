@@ -131,7 +131,7 @@ func (e *Echelon) Enqueue(item Item) error {
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
 
-	if err := e.root.push(e, item.GetPath(), &queueItem{
+	if err := e.root.push(item.GetPath(), &queueItem{
 		ID:        item.GetID(),
 		Timestamp: item.GetTimestamp(),
 	}); err != nil {
@@ -150,7 +150,7 @@ func (e *Echelon) Dequeue(item interface{}) error {
 	e.mutex.Lock()
 	defer e.mutex.Unlock()
 
-	qi, err := e.root.pop(e)
+	qi, err := e.root.pop(e.provider)
 	if err != nil {
 		return err
 	}
