@@ -289,10 +289,16 @@ func main() {
 	simulation.load(flag.Arg(0))
 
 	var db echelon.Storage
+	var ns echelon.NodeStorage
 	var err error
 
+	ns = &echelon.MemNodeStorage{}
+
 	if *redisAddr != "" {
-		db, err = echelon.NewRedis(*redisAddr)
+		var redisDb *echelon.RedisDb
+		redisDb, err = echelon.NewRedis(*redisAddr)
+		db = redisDb
+		ns = redisDb
 		log.Info("Using Redis")
 	} else if *sqlAddr != "" {
 		db, err = echelon.NewSQL(*sqlAddr)
@@ -306,7 +312,7 @@ func main() {
 	}
 	defer db.Close()
 
-	queue, err := echelon.New(&testutil.Transfer{}, db, &echelon.MemNodeStorage{}, simulation)
+	queue, err := echelon.New(&testutil.Transfer{}, db, ns, simulation)
 	if err != nil {
 		log.Fatal(err)
 	}
