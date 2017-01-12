@@ -264,6 +264,17 @@ func (s *SimulationProvider) load(path string) {
 	}
 }
 
+// hertz formats the count/duration in hertz
+func hertz(count int, duration time.Duration) string {
+	freq := float64(count) / duration.Seconds()
+	if freq >= 1000000 {
+		return fmt.Sprintf("%.2f MHz", freq / float64(1000000))
+	} else if freq >= 1000 {
+		return fmt.Sprintf("%.2f kHz", freq / float64(1000))
+	}
+	return fmt.Sprint(freq, " Hz")
+}
+
 // main is the entry point
 func main() {
 	rand.Seed(time.Now().UnixNano())
@@ -321,13 +332,15 @@ func main() {
 	start := time.Now()
 	simulation.populate(queue, *generate)
 	end := time.Now()
-	log.Info("Produced ", *generate, " in ", end.Sub(start))
+	duration := end.Sub(start)
+	log.Info("Produced ", *generate, " in ", duration, " (", hertz(*generate, duration), ")")
 
 	// Run simulation
 	start = time.Now()
 	consumed, quadCount := simulation.run(queue, *pick)
 	end = time.Now()
-	log.Info("Consumed ", consumed, " in ", end.Sub(start))
+	duration = end.Sub(start)
+	log.Info("Consumed ", consumed, " in ", duration, " (", hertz(*generate, duration), ")")
 
 	// Clean up
 	if !*keepDb {
