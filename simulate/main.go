@@ -21,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	log "github.com/Sirupsen/logrus"
+	"github.com/garyburd/redigo/redis"
 	"github.com/satori/go.uuid"
 	"gitlab.cern.ch/flutter/echelon"
 	"gitlab.cern.ch/flutter/echelon/testutil"
@@ -30,6 +31,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"runtime"
 )
 
 const (
@@ -268,9 +270,9 @@ func (s *SimulationProvider) load(path string) {
 func hertz(count int, duration time.Duration) string {
 	freq := float64(count) / duration.Seconds()
 	if freq >= 1000000 {
-		return fmt.Sprintf("%.2f MHz", freq / float64(1000000))
+		return fmt.Sprintf("%.2f MHz", freq/float64(1000000))
 	} else if freq >= 1000 {
-		return fmt.Sprintf("%.2f kHz", freq / float64(1000))
+		return fmt.Sprintf("%.2f kHz", freq/float64(1000))
 	}
 	return fmt.Sprint(freq, " Hz")
 }
@@ -301,12 +303,12 @@ func main() {
 
 	var db echelon.Storage
 	var ns echelon.NodeStorage
+	var redisDb *echelon.RedisDb
 	var err error
 
 	ns = &echelon.MemNodeStorage{}
 
 	if *redisAddr != "" {
-		var redisDb *echelon.RedisDb
 		redisDb, err = echelon.NewRedis(*redisAddr)
 		db = redisDb
 		ns = redisDb
@@ -334,6 +336,24 @@ func main() {
 	end := time.Now()
 	duration := end.Sub(start)
 	log.Info("Produced ", *generate, " in ", duration, " (", hertz(*generate, duration), ")")
+	if redisDb != nil {
+		info, err := redis.String(redisDb.Pool.Get().Do("INFO"))
+		if err != nil {
+			log.Fatal(err)
+		}
+		attrs := make(map[string]string)
+		for _, line := range strings.Split(info, "\r\n") {
+			if len(line) == 0 || line[0] == '#' {
+				continue
+			}
+			parts := strings.SplitN(line, ":", 2)
+			attrs[parts[0]] = parts[1]
+		}
+		log.Info("Redis using ", attrs["used_memory_rss"], " bytes")
+	}
+	mem := runtime.MemStats{}
+	runtime.ReadMemStats(&mem)
+	log.Info("Memory used ", mem.Sys, " bytes")
 
 	// Run simulation
 	start = time.Now()
@@ -344,10 +364,9 @@ func main() {
 
 	// Clean up
 	if !*keepDb {
-		if *redisAddr != "" {
+		if redisDb != nil {
 			log.Info("Cleaning Redis")
-			db2, _ := echelon.NewRedis(*redisAddr)
-			_, err := db2.Pool.Get().Do("FLUSHALL")
+			_, err := redisDb.Pool.Get().Do("FLUSHALL")
 			if err != nil {
 				log.Error(err)
 			}
