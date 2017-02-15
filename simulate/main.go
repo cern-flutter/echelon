@@ -211,7 +211,10 @@ func (i *SimulationProvider) ConsumeSlot(path []string) error {
 
 // populate generates n random transfers (using the configured possible choices)
 // and push them into the Echelon queue
-func (s *SimulationProvider) populate(queue *echelon.Echelon, n int) {
+func (s *SimulationProvider) populate(queue *echelon.Echelon, n int) time.Duration {
+	// Generate transfers first, so we do not measure the time it takes to generate them!
+	log.Info("Generating transfers")
+	transfers := make([]*testutil.Transfer, n)
 	for i := 0; i < n; i++ {
 		sourceSe := testutil.RandomChoice(s.Choices.Storages)
 		destSe := testutil.RandomChoice(s.Choices.Storages)
@@ -226,10 +229,18 @@ func (s *SimulationProvider) populate(queue *echelon.Echelon, n int) {
 			Vo:          testutil.RandomChoice(s.Choices.Vos),
 			Activity:    testutil.RandomChoice(s.Choices.Activities),
 		}
-		if err := queue.Enqueue(transfer); err != nil {
+		transfers[i] = transfer
+	}
+
+	log.Info("Pushing transfers")
+	start := time.Now()
+	for i := 0; i < n; i++ {
+		if err := queue.Enqueue(transfers[i]); err != nil {
 			log.Panic(err)
 		}
 	}
+	end := time.Now()
+	return end.Sub(start)
 }
 
 // run picks n transfers from the queue, or as many until we run out of slots (or transfers)
@@ -331,11 +342,9 @@ func main() {
 	}
 
 	// Prepare queue
-	start := time.Now()
-	simulation.populate(queue, *generate)
-	end := time.Now()
-	duration := end.Sub(start)
+	duration := simulation.populate(queue, *generate)
 	log.Info("Produced ", *generate, " in ", duration, " (", hertz(*generate, duration), ")")
+
 	if redisDb != nil {
 		info, err := redis.String(redisDb.Pool.Get().Do("INFO"))
 		if err != nil {
@@ -356,9 +365,9 @@ func main() {
 	log.Info("Memory used ", mem.Sys, " bytes")
 
 	// Run simulation
-	start = time.Now()
+	start := time.Now()
 	consumed, quadCount := simulation.run(queue, *pick)
-	end = time.Now()
+	end := time.Now()
 	duration = end.Sub(start)
 	log.Info("Consumed ", consumed, " in ", duration, " (", hertz(*generate, duration), ")")
 
