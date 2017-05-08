@@ -26,6 +26,7 @@ import (
 	"runtime"
 	"testing"
 	"time"
+	"sync"
 )
 
 type (
@@ -159,23 +160,24 @@ func TestRacy1(t *testing.T) {
 	echelon := newEchelon()
 	defer echelon.Close()
 
-	done := make(chan bool)
+	wg := sync.WaitGroup{}
+
 	f := func() {
+		defer wg.Done()
+
 		for i := 0; i < N; i++ {
 			transfer := testutil.GenerateRandomTransfer()
 			if err := echelon.Enqueue(transfer); err != nil {
 				t.Fatal(err)
 			}
 		}
-		done <- true
 	}
 
+	wg.Add(2)
 	go f()
 	go f()
 
-	for count := 0; count < 2; count++ {
-		_ = <-done
-	}
+	wg.Wait()
 
 	// Clean up for next tests
 	clearEchelon()
@@ -186,12 +188,14 @@ func TestRacy2(t *testing.T) {
 	echelon := newEchelon()
 	defer echelon.Close()
 
-	done := make(chan bool)
+	wg := sync.WaitGroup{}
 
 	produced := make([]*testutil.Transfer, N)
 	consumed := make(map[string]*testutil.Transfer)
 
 	producer := func() {
+		defer wg.Done()
+
 		for i := 0; i < N; i++ {
 			transfer := testutil.GenerateRandomTransfer()
 			// Some time before the event to queue arrives
@@ -202,9 +206,10 @@ func TestRacy2(t *testing.T) {
 			produced[i] = transfer
 		}
 		t.Log("Producer done")
-		done <- true
 	}
 	consumer := func() {
+		defer wg.Done()
+
 		for i := 0; i < N; {
 			transfer := &testutil.Transfer{}
 			if err := echelon.Dequeue(transfer); err != nil && err != ErrEmpty {
@@ -220,15 +225,13 @@ func TestRacy2(t *testing.T) {
 			}
 		}
 		t.Log("Consumer done")
-		done <- true
 	}
 
+	wg.Add(2)
 	go producer()
 	go consumer()
 
-	for count := 0; count < 2; count++ {
-		_ = <-done
-	}
+	wg.Wait()
 
 	if len(produced) != len(consumed) {
 		t.Fatal("Expected equal length of produced and consumed", N, len(produced), len(consumed))
